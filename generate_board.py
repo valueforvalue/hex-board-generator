@@ -114,7 +114,8 @@ def hex_fits_stone(r_pt, stone_diameter_mm):
     return flat_to_flat_mm, stone_diameter_mm / flat_to_flat_mm
 
 
-def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None):
+def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
+                   pen_paper=False, coords=True):
     page_w, page_h = pick_page_size(paper, board_size)
     if margin_pt is None:
         margin_pt = DEFAULT_MARGINS_PT[paper.lower()]
@@ -134,11 +135,14 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None):
     offset_y = center_y - (min_y + grid_h / 2)
 
     c = canvas.Canvas(output_filename, pagesize=(page_w, page_h))
-    c.setTitle(f"Hex Board ({board_size}x{board_size})")
+    title = (f"HEX BOARD \u2014 PAPER & PENCIL ({board_size} \u00d7 {board_size})"
+             if pen_paper else
+             f"HEX BOARD ({board_size} \u00d7 {board_size})")
+    c.setTitle(title)
 
     c.setFont("Helvetica-Bold", 16)
     c.setFillColor(colors.HexColor("#1A1A1A"))
-    c.drawCentredString(center_x, page_h - 30, f"HEX BOARD ({board_size} \u00d7 {board_size})")
+    c.drawCentredString(center_x, page_h - 30, title)
 
     def get_hex_points(cx, cy, radius):
         pts = []
@@ -149,7 +153,7 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None):
 
     # 1. Draw hex cells.
     c.setStrokeColor(colors.HexColor("#7F8C8D"))
-    c.setLineWidth(1)
+    c.setLineWidth(1.5 if pen_paper else 1)
     for row in range(board_size):
         for col in range(board_size):
             cx = r * SQRT3 * (col + 0.5 * row) + offset_x
@@ -230,11 +234,33 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None):
         c.restoreState()
 
     mid = board_size // 2
-    lbl_dist = r * 1.4
+    lbl_dist = r * 1.4 if not pen_paper else r * 2.2
     draw_label("White Side", mid, 0, white_color, 0, -lbl_dist, 0)
     draw_label("White Side", mid, board_size - 1, white_color, 0, lbl_dist, 0)
     draw_label("Black Side", 0, mid, black_color, -lbl_dist * 0.866, lbl_dist * 0.5, 60)
     draw_label("Black Side", board_size - 1, mid, black_color, lbl_dist * 0.866, -lbl_dist * 0.5, 60)
+
+    # 4. Coordinate labels and footer (paper & pencil mode).
+    if coords or pen_paper:
+        c.setFont("Helvetica", 9)
+        c.setFillColor(colors.HexColor("#555555"))
+        # Column labels a..k along the top edge (row 0 hex centers, offset slightly outward).
+        col_label_y = r * 1.5 * 0 + offset_y - r * 1.15
+        for col in range(board_size):
+            cx = r * SQRT3 * (col + 0.5 * 0) + offset_x
+            label = chr(ord('a') + col) if board_size <= 26 else str(col + 1)
+            c.drawCentredString(cx, col_label_y, label)
+        # Row labels 1..N along the left edge (col 0 hex centers).
+        row_label_x = r * SQRT3 * 0 + offset_x - r * 1.25
+        for row in range(board_size):
+            cy = r * 1.5 * row + offset_y
+            c.drawCentredString(row_label_x, cy - 3, str(row + 1))
+
+    if pen_paper:
+        c.setFont("Helvetica-Oblique", 8)
+        c.setFillColor(colors.HexColor("#777777"))
+        c.drawCentredString(center_x, 18,
+            f"Notation: <col><row> e.g. f7  \u2022  Black (or Red) moves first.  \u2022  Connect your two sides to win.")
 
     c.showPage()
     c.save()
@@ -254,6 +280,15 @@ if __name__ == "__main__":
                              "Triggers auto paper selection and prints fit diagnostics.")
     parser.add_argument("--margin", type=float, default=None,
                         help="Override page margin in points (1 inch = 72 pt)")
+    parser.add_argument("--pen-paper", action="store_true",
+                        help="Paper-and-pencil mode: thicker hex strokes, "
+                             "coordinate labels (a..k, 1..N) along edges, "
+                             "and a notation hint in the footer. Default for pen/marker play.")
+    parser.add_argument("--coords", action="store_true",
+                        help="Show coordinate labels (a..k, 1..N) along edges. "
+                             "Automatically enabled by --pen-paper.")
+    parser.add_argument("--no-coords", action="store_true",
+                        help="Suppress coordinate labels (default behavior)")
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--safemode", dest="mode", action="store_const", const="safe",
                             default="safe",
@@ -307,7 +342,13 @@ if __name__ == "__main__":
                   file=sys.stderr)
             sys.exit(2)
 
-    r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt)
+    # Coordinates: on by default for pen-paper, off otherwise unless --coords.
+    show_coords = args.pen_paper or args.coords
+    if args.no_coords:
+        show_coords = False
+
+    r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
+                      pen_paper=args.pen_paper, coords=show_coords)
 
     # Diagnostics.
     flat_mm, _ = hex_fits_stone(r, args.stone_size or 0)
