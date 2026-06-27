@@ -65,13 +65,27 @@ def pick_page_size(name, board_size):
     return base
 
 
-def auto_pick_paper(board_size, stone_diameter_mm, margin_pt):
+# Maximum stone-to-hex flat-to-flat ratio per mode.
+# Comfortable = 0.70 (30% margin).  Tight = 0.85.  Flush = 1.00 (no margin).
+FIT_RATIOS = {
+    "safe":      0.70,
+    "makeitwork": 0.85,
+    "unsafe":    1.00,
+}
+
+
+def auto_pick_paper(board_size, stone_diameter_mm, margin_pt, mode="safe"):
     """Find the smallest paper that fits the board + stone requirement.
 
-    Returns (paper_name, orientation) or (None, None) if nothing fits.
+    `mode` controls the maximum stone-to-hex flat-to-flat ratio:
+      - safe      : 0.70  (30% margin, default)
+      - makeitwork: 0.85  (tight fit, stones nearly fill hex)
+      - unsafe    : 1.00  (stones flush with hex walls, no margin)
+
+    Returns (paper_name, orientation, achieved_ratio) or (None, None, ratio).
     """
-    # Stone-to-hex flat-to-flat ratio: stone <= 0.70 * flat_to_flat (30% margin).
-    min_flat_to_flat_mm = stone_diameter_mm / 0.70
+    ratio = FIT_RATIOS[mode]
+    min_flat_to_flat_mm = stone_diameter_mm / ratio
     min_r_pt = (min_flat_to_flat_mm / MM_PER_INCH * PT_PER_INCH) / SQRT3
 
     gw_units, gh_units = grid_extent_r_units(board_size)
@@ -82,8 +96,8 @@ def auto_pick_paper(board_size, stone_diameter_mm, margin_pt):
     for name, (pw, ph) in PAPERS_BY_AREA:
         for orient_w, orient_h, label in ((pw, ph, "portrait"), (ph, pw, "landscape")):
             if orient_w >= need_w_pt and orient_h >= need_h_pt:
-                return name, label
-    return None, None
+                return name, label, ratio
+    return None, None, ratio
 
 
 def compute_r(page_w, page_h, margin, board_size):
@@ -240,6 +254,15 @@ if __name__ == "__main__":
                              "Triggers auto paper selection and prints fit diagnostics.")
     parser.add_argument("--margin", type=float, default=None,
                         help="Override page margin in points (1 inch = 72 pt)")
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument("--safemode", dest="mode", action="store_const", const="safe",
+                            default="safe",
+                            help="Default. Stone must be <= 70%% of hex flat-to-flat (comfortable).")
+    mode_group.add_argument("--makeitwork", dest="mode", action="store_const", const="makeitwork",
+                            help="Allow tight fit: stone up to 85%% of hex flat-to-flat. "
+                                 "Auto-picks smallest paper that fits and pushes hex size to the edge.")
+    mode_group.add_argument("--unsafe", dest="mode", action="store_const", const="unsafe",
+                            help="No margin: stones flush with hex walls. For testing only.")
     args = parser.parse_args()
 
     if args.size < 2:
@@ -254,26 +277,52 @@ if __name__ == "__main__":
             args.paper = "letter"
         else:
             margin_for_calc = margin_pt if margin_pt is not None else min(DEFAULT_MARGINS_PT.values())
-            picked, orient = auto_pick_paper(args.size, args.stone_size, margin_for_calc)
+            picked, orient, ratio = auto_pick_paper(
+                args.size, args.stone_size, margin_for_calc, mode=args.mode
+            )
             if picked is None:
                 print(f"Error: no paper size is large enough for {args.size}x{args.size} "
-                      f"board with {args.stone_size} mm stones.", file=sys.stderr)
+                      f"board with {args.stone_size} mm stones in {args.mode} mode.",
+                      file=sys.stderr)
                 sys.exit(2)
             args.paper = picked
             print(f"Auto-selected paper: {picked} ({orient}) for "
-                  f"{args.size}x{args.size} board with {args.stone_size} mm stones.")
+                  f"{args.size}x{args.size} board with {args.stone_size} mm stones "
+                  f"[mode={args.mode}, ratio={ratio:.0%}].")
 
     if args.paper not in PAPER_SIZES:
         print(f"Error: unknown paper '{args.paper}'. Choices: {', '.join(PAPER_SIZES)}", file=sys.stderr)
         sys.exit(1)
 
+    # Pre-flight check: does the chosen paper satisfy the fit ratio for the stone?
+    if args.stone_size is not None and args.mode == "safe":
+        pw, ph = pick_page_size(args.paper, args.size)
+        margin_for_check = margin_pt if margin_pt is not None else DEFAULT_MARGINS_PT[args.paper]
+        r_check, _, _ = compute_r(pw, ph, margin_for_check, args.size)
+        flat_mm = SQRT3 * r_check / PT_PER_INCH * MM_PER_INCH
+        if args.stone_size / flat_mm > FIT_RATIOS["safe"]:
+            print(f"Error: stone {args.stone_size} mm does not fit comfortably on {args.paper} "
+                  f"(hex flat-to-flat {flat_mm:.1f} mm, ratio {args.stone_size/flat_mm:.0%} > 70%). "
+                  f"Use --makeitwork or omit --paper to auto-pick a bigger paper.",
+                  file=sys.stderr)
+            sys.exit(2)
+
     r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt)
 
     # Diagnostics.
     flat_mm, _ = hex_fits_stone(r, args.stone_size or 0)
-    orient = "landscape" if pick_page_size(args.paper, args.size)[0] > pick_page_size(args.paper, args.size)[1] else "portrait"
+    pw, ph = pick_page_size(args.paper, args.size)
+    orient = "landscape" if pw > ph else "portrait"
     print(f"Generated {args.size}x{args.size} board on {args.paper} ({orient}).")
     if args.stone_size:
         ratio = args.stone_size / flat_mm
-        status = "comfortable" if ratio <= 0.70 else ("tight" if ratio <= 0.85 else "OVERSIZE")
-        print(f"  hex flat-to-flat: {flat_mm:.1f} mm; stone/stone ratio: {ratio:.0%} ({status}).")
+        if ratio <= 0.70:
+            status = "comfortable"
+        elif ratio <= 0.85:
+            status = "tight"
+        elif ratio <= 1.00:
+            status = "flush (no margin)"
+        else:
+            status = "OVERSIZE — stones will overlap adjacent cells"
+        print(f"  hex flat-to-flat: {flat_mm:.1f} mm; "
+              f"stone/flat ratio: {ratio:.0%} ({status}) [mode={args.mode}].")
