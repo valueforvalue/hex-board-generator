@@ -118,10 +118,14 @@ def hex_fits_stone(r_pt, stone_diameter_mm):
 
 
 def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
-                   pen_paper=False, coords=True):
+                   pen_paper=False, coords=True, mode="safe"):
     page_w, page_h = pick_page_size(paper, board_size)
     if margin_pt is None:
-        margin_pt = DEFAULT_MARGINS_PT[paper.lower()]
+        if mode in ("makeitwork", "unsafe"):
+            # Push hexes to the edge: reserve only stroke width + minimal label space.
+            margin_pt = 4
+        else:
+            margin_pt = DEFAULT_MARGINS_PT[paper.lower()]
     r, max_w, max_h = compute_r(page_w, page_h, margin_pt, board_size)
 
     center_x = page_w / 2
@@ -145,7 +149,8 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
 
     c.setFont("Helvetica-Bold", 16)
     c.setFillColor(colors.HexColor("#1A1A1A"))
-    c.drawCentredString(center_x, page_h - margin_pt / 2, title)
+    title_y = max(14, margin_pt / 2)
+    c.drawCentredString(center_x, page_h - title_y, title)
 
     def get_hex_points(cx, cy, radius):
         pts = []
@@ -262,7 +267,7 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
     if pen_paper:
         c.setFont("Helvetica-Oblique", 8)
         c.setFillColor(colors.HexColor("#777777"))
-        c.drawCentredString(center_x, margin_pt / 2,
+        c.drawCentredString(center_x, max(14, margin_pt / 2),
             f"Notation: <col><row> e.g. f7  \u2022  Black (or Red) moves first.  \u2022  Connect your two sides to win.")
 
     c.showPage()
@@ -352,7 +357,7 @@ if __name__ == "__main__":
         show_coords = False
 
     r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
-                      pen_paper=args.pen_paper, coords=show_coords)
+                      pen_paper=args.pen_paper, coords=show_coords, mode=args.mode)
 
     # Diagnostics.
     flat_mm, _ = hex_fits_stone(r, args.stone_size or 0)
