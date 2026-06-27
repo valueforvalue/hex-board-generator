@@ -1,106 +1,152 @@
 #!/usr/bin/env python3
+"""
+Generate a printable HEX board PDF sized to fit a given paper and (optionally)
+optimized for a specific Go-stone diameter.
+
+Geometry: pointy-top hexes in odd-r offset layout.
+  - Hex width  = sqrt(3) * r
+  - Hex height = 2 * r
+  - Grid width  = r * sqrt(3) * (1.5*(N-1) + 1)
+  - Grid height = r * (1.5*(N-1) + 2)
+"""
 import argparse
-import sys
 import math
+import sys
 from reportlab.lib.pagesizes import letter, legal, A3, A4, landscape
-
-# Tabloid / Ledger (11 x 17 in) is not in reportlab by default.
-TABLOID = (11 * 72, 17 * 72)
-# ANSI B (17 x 22 in) for the biggest standard fit.
-ANSI_B = (17 * 72, 22 * 72)
-
-PAPER_SIZES = {
-    "letter":  letter,
-    "legal":   legal,
-    "tabloid": TABLOID,
-    "ledger":  TABLOID,   # alias
-    "a3":      A3,
-    "a4":      A4,
-    "ansi-b":  ANSI_B,
-}
-
-
-def pick_page_size(name, board_size, sqrt3):
-    """Return a page size in points, auto-rotating to landscape when wider fits better.
-
-    For an NxN pointy-top hex grid the bounding box (in r units) is:
-        width  = sqrt(3) * (1.5*(N-1) + 1)
-        height = 1.5*(N-1) + 2
-    so width > height for N >= 3. Landscape gives more usable width.
-    """
-    base = PAPER_SIZES[name.lower()]
-    w, h = base
-    # Hex grid is wider than tall for N >= 3; prefer landscape.
-    if board_size >= 3 and w < h:
-        return landscape(base)
-    return base
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 
-def draw_hex_board(output_filename, board_size, paper="letter"):
-    page_width, page_height = pick_page_size(paper, board_size, math.sqrt(3))
-    margin = 36
 
-    # Target printable area
-    max_w = page_width - (2 * margin)
-    max_h = page_height - (2 * margin)
-    center_x = page_width / 2
-    center_y = page_height / 2
+SQRT3 = math.sqrt(3)
+MM_PER_INCH = 25.4
+PT_PER_INCH = 72
 
-    sqrt3 = math.sqrt(3)
 
-    # Calculate optimal radius 'r' for pointy-topped hexagons
-    # Grid width = r * sqrt(3) * (1.5 * (N - 1) + 1)
-    # Grid height = r * (1.5 * (N - 1) + 2)
-    grid_w_unscaled = sqrt3 * (1.5 * (board_size - 1) + 1)
-    grid_h_unscaled = 1.5 * (board_size - 1) + 2
-    
-    r_width = max_w / grid_w_unscaled
-    r_height = max_h / grid_h_unscaled
-    r = min(r_width, r_height)  # 5% padding to ensure labels fit
-    
-    # Calculate offsets to perfectly center the rhombus grid
-    min_x = -r * sqrt3 / 2
-    max_x = r * sqrt3 * (1.5 * (board_size - 1) + 0.5)
+# Paper sizes in points (width, height), portrait orientation.
+PAPER_SIZES = {
+    "letter":  letter,           # 8.5 x 11 in
+    "legal":   legal,            # 8.5 x 14 in
+    "tabloid": (11 * 72, 17 * 72),  # 11 x 17 in (Ledger)
+    "ledger":  (11 * 72, 17 * 72),  # alias
+    "a4":      A4,               # 8.27 x 11.69 in
+    "a3":      A3,               # 11.69 x 16.54 in
+    "ansi-b":  (17 * 72, 22 * 72),  # 17 x 22 in
+}
+
+# Default margin per paper (points). Tighter on small paper to maximize hex size.
+DEFAULT_MARGINS_PT = {
+    "letter":  18,   # 0.25 in
+    "legal":   24,   # 0.33 in
+    "tabloid": 36,   # 0.5 in
+    "ledger":  36,
+    "a4":      24,
+    "a3":      36,
+    "ansi-b":  54,   # 0.75 in
+}
+
+# Sort papers by area ascending for auto-recommendation.
+PAPERS_BY_AREA = sorted(PAPER_SIZES.items(), key=lambda kv: kv[1][0] * kv[1][1])
+
+
+def grid_extent_r_units(N):
+    """Return (w_units, h_units): grid extent in r units for NxN pointy-top board."""
+    return (SQRT3 * (1.5 * (N - 1) + 1), 1.5 * (N - 1) + 2)
+
+
+def pick_page_size(name, board_size):
+    """Return page size in points, auto-rotating to landscape when wider fits better.
+
+    For N >= 3 the hex grid is wider than tall, so landscape uses paper better.
+    """
+    base = PAPER_SIZES[name.lower()]
+    w, h = base
+    if board_size >= 3 and w < h:
+        return landscape(base)
+    return base
+
+
+def auto_pick_paper(board_size, stone_diameter_mm, margin_pt):
+    """Find the smallest paper that fits the board + stone requirement.
+
+    Returns (paper_name, orientation) or (None, None) if nothing fits.
+    """
+    # Stone-to-hex flat-to-flat ratio: stone <= 0.70 * flat_to_flat (30% margin).
+    min_flat_to_flat_mm = stone_diameter_mm / 0.70
+    min_r_pt = (min_flat_to_flat_mm / MM_PER_INCH * PT_PER_INCH) / SQRT3
+
+    gw_units, gh_units = grid_extent_r_units(board_size)
+    need_w_pt = gw_units * min_r_pt + 2 * margin_pt
+    need_h_pt = gh_units * min_r_pt + 2 * margin_pt
+
+    # Walk papers smallest-first; check both orientations.
+    for name, (pw, ph) in PAPERS_BY_AREA:
+        for orient_w, orient_h, label in ((pw, ph, "portrait"), (ph, pw, "landscape")):
+            if orient_w >= need_w_pt and orient_h >= need_h_pt:
+                return name, label
+    return None, None
+
+
+def compute_r(page_w, page_h, margin, board_size):
+    """Largest r that fits the page after margin."""
+    gw_units, gh_units = grid_extent_r_units(board_size)
+    max_w = page_w - 2 * margin
+    max_h = page_h - 2 * margin
+    return min(max_w / gw_units, max_h / gh_units), max_w, max_h
+
+
+def hex_fits_stone(r_pt, stone_diameter_mm):
+    """Return (flat_to_flat_mm, ratio) for diagnostic."""
+    flat_to_flat_mm = SQRT3 * r_pt / PT_PER_INCH * MM_PER_INCH
+    return flat_to_flat_mm, stone_diameter_mm / flat_to_flat_mm
+
+
+def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None):
+    page_w, page_h = pick_page_size(paper, board_size)
+    if margin_pt is None:
+        margin_pt = DEFAULT_MARGINS_PT[paper.lower()]
+    r, max_w, max_h = compute_r(page_w, page_h, margin_pt, board_size)
+
+    center_x = page_w / 2
+    center_y = page_h / 2
+
+    # Center the rhombus precisely.
+    min_x = -r * SQRT3 / 2
+    max_x = r * SQRT3 * (1.5 * (board_size - 1) + 0.5)
     min_y = -r
     max_y = r * 1.5 * (board_size - 1) + r
-    
     grid_w = max_x - min_x
     grid_h = max_y - min_y
-    
     offset_x = center_x - (min_x + grid_w / 2)
     offset_y = center_y - (min_y + grid_h / 2)
 
-    c = canvas.Canvas(output_filename, pagesize=(page_width, page_height))
+    c = canvas.Canvas(output_filename, pagesize=(page_w, page_h))
     c.setTitle(f"Hex Board ({board_size}x{board_size})")
 
     c.setFont("Helvetica-Bold", 16)
     c.setFillColor(colors.HexColor("#1A1A1A"))
-    c.drawCentredString(center_x, page_height - 30, f"HEX BOARD ({board_size} × {board_size})")
+    c.drawCentredString(center_x, page_h - 30, f"HEX BOARD ({board_size} \u00d7 {board_size})")
 
-    # Pointy-topped hex vertices: 30, 90, 150, 210, 270, 330 degrees
     def get_hex_points(cx, cy, radius):
         pts = []
         for i in range(6):
-            angle = math.pi / 6 + i * math.pi / 3 
+            angle = math.pi / 6 + i * math.pi / 3  # 30, 90, ..., 330 deg (pointy-top)
             pts.append((cx + radius * math.cos(angle), cy + radius * math.sin(angle)))
         return pts
 
-    # 1. Draw Grid Cells
+    # 1. Draw hex cells.
     c.setStrokeColor(colors.HexColor("#7F8C8D"))
     c.setLineWidth(1)
-    
     for row in range(board_size):
         for col in range(board_size):
-            cx = r * sqrt3 * (col + 0.5 * row) + offset_x
+            cx = r * SQRT3 * (col + 0.5 * row) + offset_x
             cy = r * 1.5 * row + offset_y
             pts = get_hex_points(cx, cy, r)
-            
+
             if (row + col) % 2 == 0:
                 c.setFillColor(colors.HexColor("#FAFAFA"))
             else:
                 c.setFillColor(colors.HexColor("#F2F2F2"))
-                
+
             path = c.beginPath()
             path.moveTo(pts[0][0], pts[0][1])
             for p in pts[1:]:
@@ -108,96 +154,126 @@ def draw_hex_board(output_filename, board_size, paper="letter"):
             path.close()
             c.drawPath(path, fill=True, stroke=True)
 
-    # 2. Draw Continuous Thick Perimeter Lines
+    # 2. Draw thick perimeter bands.
     c.setLineCap(1)
     c.setLineWidth(4)
-    
     white_color = colors.HexColor("#95A5A6")
     black_color = colors.HexColor("#1A1A1A")
 
-    # Bottom Edge (White) - Row 0
+    # White: row 0 (bottom in user code's coord) and row N-1 (top).
     c.setStrokeColor(white_color)
     path = c.beginPath()
-    pts = get_hex_points(r * sqrt3 * (0 + 0) + offset_x, r * 1.5 * 0 + offset_y, r)
+    pts = get_hex_points(r * SQRT3 * 0 + offset_x, r * 1.5 * 0 + offset_y, r)
     path.moveTo(pts[3][0], pts[3][1])
     for col in range(board_size):
-        pts = get_hex_points(r * sqrt3 * (col + 0) + offset_x, r * 1.5 * 0 + offset_y, r)
+        pts = get_hex_points(r * SQRT3 * col + offset_x, r * 1.5 * 0 + offset_y, r)
         path.lineTo(pts[4][0], pts[4][1])
         path.lineTo(pts[5][0], pts[5][1])
     c.drawPath(path)
 
-    # Top Edge (White) - Row N-1
     path = c.beginPath()
     row = board_size - 1
-    pts = get_hex_points(r * sqrt3 * (0 + 0.5 * row) + offset_x, r * 1.5 * row + offset_y, r)
+    pts = get_hex_points(r * SQRT3 * (0 + 0.5 * row) + offset_x, r * 1.5 * row + offset_y, r)
     path.moveTo(pts[2][0], pts[2][1])
     for col in range(board_size):
-        pts = get_hex_points(r * sqrt3 * (col + 0.5 * row) + offset_x, r * 1.5 * row + offset_y, r)
+        pts = get_hex_points(r * SQRT3 * (col + 0.5 * row) + offset_x, r * 1.5 * row + offset_y, r)
         path.lineTo(pts[1][0], pts[1][1])
         path.lineTo(pts[0][0], pts[0][1])
     c.drawPath(path)
 
-    # Left Edge (Black) - Col 0
+    # Black: col 0 and col N-1.
     c.setStrokeColor(black_color)
     path = c.beginPath()
     col = 0
-    pts = get_hex_points(r * sqrt3 * (col + 0.5 * 0) + offset_x, r * 1.5 * 0 + offset_y, r)
+    pts = get_hex_points(r * SQRT3 * col + offset_x, r * 1.5 * 0 + offset_y, r)
     path.moveTo(pts[3][0], pts[3][1])
     for row in range(board_size):
-        pts = get_hex_points(r * sqrt3 * (col + 0.5 * row) + offset_x, r * 1.5 * row + offset_y, r)
+        pts = get_hex_points(r * SQRT3 * (col + 0.5 * row) + offset_x, r * 1.5 * row + offset_y, r)
         path.lineTo(pts[2][0], pts[2][1])
         path.lineTo(pts[1][0], pts[1][1])
     c.drawPath(path)
 
-    # Right Edge (Black) - Col N-1
     path = c.beginPath()
     col = board_size - 1
-    pts = get_hex_points(r * sqrt3 * (col + 0.5 * 0) + offset_x, r * 1.5 * 0 + offset_y, r)
+    pts = get_hex_points(r * SQRT3 * (col + 0.5 * 0) + offset_x, r * 1.5 * 0 + offset_y, r)
     path.moveTo(pts[4][0], pts[4][1])
     for row in range(board_size):
-        pts = get_hex_points(r * sqrt3 * (col + 0.5 * row) + offset_x, r * 1.5 * row + offset_y, r)
+        pts = get_hex_points(r * SQRT3 * (col + 0.5 * row) + offset_x, r * 1.5 * row + offset_y, r)
         path.lineTo(pts[5][0], pts[5][1])
         path.lineTo(pts[0][0], pts[0][1])
     c.drawPath(path)
 
-    # 3. Draw Edge Labels
-    def draw_label(lbl_text, col, row, color, offset_x_shift, offset_y_shift, angle):
-        cx = r * sqrt3 * (col + 0.5 * row) + offset_x
+    # 3. Edge labels.
+    def draw_label(text, col, row, color, dx, dy, angle):
+        cx = r * SQRT3 * (col + 0.5 * row) + offset_x
         cy = r * 1.5 * row + offset_y
         c.saveState()
         c.setFont("Helvetica-Bold", 12)
         c.setFillColor(color)
-        c.translate(cx + offset_x_shift, cy + offset_y_shift)
+        c.translate(cx + dx, cy + dy)
         c.rotate(angle)
-        c.drawCentredString(0, 0, lbl_text.upper())
+        c.drawCentredString(0, 0, text.upper())
         c.restoreState()
 
     mid = board_size // 2
     lbl_dist = r * 1.4
-    
-    # Top and Bottom (White)
     draw_label("White Side", mid, 0, white_color, 0, -lbl_dist, 0)
     draw_label("White Side", mid, board_size - 1, white_color, 0, lbl_dist, 0)
-    
-    # Left and Right (Black) - The axis angles at exactly 60 degrees.
     draw_label("Black Side", 0, mid, black_color, -lbl_dist * 0.866, lbl_dist * 0.5, 60)
     draw_label("Black Side", board_size - 1, mid, black_color, lbl_dist * 0.866, -lbl_dist * 0.5, 60)
 
     c.showPage()
     c.save()
 
+    return r
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate a pristine printable Hex board PDF.")
-    parser.add_argument("size", type=int, help="Board size (e.g., 11)")
-    parser.add_argument("-o", "--output", type=str, default="hex_board.pdf", help="Output file path")
-    parser.add_argument("-p", "--paper", type=str, default="letter",
-                        choices=list(PAPER_SIZES.keys()),
-                        help="Paper size (auto-rotates to landscape when wider fits better)")
+    parser = argparse.ArgumentParser(description="Generate a printable Hex board PDF.")
+    parser.add_argument("size", type=int, help="Board size (e.g., 11 for 11x11)")
+    parser.add_argument("-o", "--output", type=str, default="hex_board.pdf", help="Output PDF path")
+    parser.add_argument("-p", "--paper", type=str, default=None,
+                        help=f"Paper size. Choices: {', '.join(PAPER_SIZES)}. "
+                             "If omitted and --stone-size is given, auto-pick the smallest paper that fits.")
+    parser.add_argument("--stone-size", type=float, default=None,
+                        help="Stone diameter in mm (e.g., 19 for 19mm Go stones). "
+                             "Triggers auto paper selection and prints fit diagnostics.")
+    parser.add_argument("--margin", type=float, default=None,
+                        help="Override page margin in points (1 inch = 72 pt)")
     args = parser.parse_args()
 
     if args.size < 2:
-        print("Error: Board size must be at least 2.")
+        print("Error: Board size must be at least 2.", file=sys.stderr)
         sys.exit(1)
 
-    draw_hex_board(args.output, args.size, paper=args.paper)
-    print(f"Generated {args.size}x{args.size} board on {args.paper}: '{args.output}'")
+    margin_pt = args.margin if args.margin is not None else None
+
+    # If --stone-size given and no explicit --paper, auto-pick.
+    if args.paper is None:
+        if args.stone_size is None:
+            args.paper = "letter"
+        else:
+            margin_for_calc = margin_pt if margin_pt is not None else min(DEFAULT_MARGINS_PT.values())
+            picked, orient = auto_pick_paper(args.size, args.stone_size, margin_for_calc)
+            if picked is None:
+                print(f"Error: no paper size is large enough for {args.size}x{args.size} "
+                      f"board with {args.stone_size} mm stones.", file=sys.stderr)
+                sys.exit(2)
+            args.paper = picked
+            print(f"Auto-selected paper: {picked} ({orient}) for "
+                  f"{args.size}x{args.size} board with {args.stone_size} mm stones.")
+
+    if args.paper not in PAPER_SIZES:
+        print(f"Error: unknown paper '{args.paper}'. Choices: {', '.join(PAPER_SIZES)}", file=sys.stderr)
+        sys.exit(1)
+
+    r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt)
+
+    # Diagnostics.
+    flat_mm, _ = hex_fits_stone(r, args.stone_size or 0)
+    orient = "landscape" if pick_page_size(args.paper, args.size)[0] > pick_page_size(args.paper, args.size)[1] else "portrait"
+    print(f"Generated {args.size}x{args.size} board on {args.paper} ({orient}).")
+    if args.stone_size:
+        ratio = args.stone_size / flat_mm
+        status = "comfortable" if ratio <= 0.70 else ("tight" if ratio <= 0.85 else "OVERSIZE")
+        print(f"  hex flat-to-flat: {flat_mm:.1f} mm; stone/stone ratio: {ratio:.0%} ({status}).")
