@@ -87,6 +87,8 @@ def auto_pick_paper(board_size, stone_diameter_mm, margin_pt, mode="safe"):
     ratio = FIT_RATIOS[mode]
     min_flat_to_flat_mm = stone_diameter_mm / ratio
     min_r_pt = (min_flat_to_flat_mm / MM_PER_INCH * PT_PER_INCH) / SQRT3
+    # Apply same 8% label safety as compute_r().
+    min_r_pt /= 0.92
 
     gw_units, gh_units = grid_extent_r_units(board_size)
     need_w_pt = gw_units * min_r_pt + 2 * margin_pt
@@ -101,11 +103,12 @@ def auto_pick_paper(board_size, stone_diameter_mm, margin_pt, mode="safe"):
 
 
 def compute_r(page_w, page_h, margin, board_size):
-    """Largest r that fits the page after margin."""
+    """Largest r that fits the page after margin, with 8% safety so labels don't clip."""
     gw_units, gh_units = grid_extent_r_units(board_size)
     max_w = page_w - 2 * margin
     max_h = page_h - 2 * margin
-    return min(max_w / gw_units, max_h / gh_units), max_w, max_h
+    safety = 0.92  # reserve room for side labels
+    return min(max_w / gw_units, max_h / gh_units) * safety, max_w, max_h
 
 
 def hex_fits_stone(r_pt, stone_diameter_mm):
@@ -142,7 +145,7 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
 
     c.setFont("Helvetica-Bold", 16)
     c.setFillColor(colors.HexColor("#1A1A1A"))
-    c.drawCentredString(center_x, page_h - 30, title)
+    c.drawCentredString(center_x, page_h - margin_pt / 2, title)
 
     def get_hex_points(cx, cy, radius):
         pts = []
@@ -259,7 +262,7 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
     if pen_paper:
         c.setFont("Helvetica-Oblique", 8)
         c.setFillColor(colors.HexColor("#777777"))
-        c.drawCentredString(center_x, 18,
+        c.drawCentredString(center_x, margin_pt / 2,
             f"Notation: <col><row> e.g. f7  \u2022  Black (or Red) moves first.  \u2022  Connect your two sides to win.")
 
     c.showPage()
@@ -317,7 +320,8 @@ if __name__ == "__main__":
             )
             if picked is None:
                 print(f"Error: no paper size is large enough for {args.size}x{args.size} "
-                      f"board with {args.stone_size} mm stones in {args.mode} mode.",
+                      f"board with {args.stone_size} mm stones in {args.mode} mode. "
+                      f"Try --makeitwork or --unsafe, or a smaller board size.",
                       file=sys.stderr)
                 sys.exit(2)
             args.paper = picked
