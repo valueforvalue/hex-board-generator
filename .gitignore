@@ -1,0 +1,10 @@
+# Generated PDFs and preview PNGs (regenerate via the script)
+hex_board.pdf
+hex_board.png
+test_*.pdf
+test_*.png
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
