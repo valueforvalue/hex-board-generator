@@ -1,5 +1,7 @@
 # HEX Board Generator
 
+[![Test](https://github.com/valueforvalue/hex-board-generator/actions/workflows/test.yml/badge.svg)](https://github.com/valueforvalue/hex-board-generator/actions/workflows/test.yml)
+
 Generate printable HEX board PDFs sized for Go stones, paper-and-pencil play, or any custom layout.
 
 11×11 is the classic Hex board size. This generator also supports 7×7, 9×9, 13×13, 14×14, 19×19, and any other N×N.
