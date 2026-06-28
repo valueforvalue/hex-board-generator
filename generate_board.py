@@ -48,6 +48,51 @@ DEFAULT_MARGINS_PT = {
 PAPERS_BY_AREA = sorted(PAPER_SIZES.items(), key=lambda kv: kv[1][0] * kv[1][1])
 
 
+# Visual themes control cell fill colors, grid stroke, and side band colors.
+# Each theme returns: (fill_a, fill_b, grid_stroke, white_band, black_band, page_bg)
+THEMES = {
+    "classic": {
+        "fill_a":   "#FAFAFA",
+        "fill_b":   "#F2F2F2",
+        "stroke":   "#7F8C8D",
+        "white":    "#95A5A6",  # light gray for white side band
+        "black":    "#1A1A1A",  # dark for black side band
+        "page_bg":  None,        # no background fill
+    },
+    "light": {
+        "fill_a":   "#FFFFFF",
+        "fill_b":   "#FFFFFF",
+        "stroke":   "#888888",
+        "white":    "#B0B0B0",
+        "black":    "#202020",
+        "page_bg":  "#FFFFFF",
+    },
+    "dark": {
+        "fill_a":   "#2C3E50",
+        "fill_b":   "#34495E",
+        "stroke":   "#7F8C8D",
+        "white":    "#ECF0F1",
+        "black":    "#F39C12",  # orange so the black-side band is visible on dark bg
+        "page_bg":  "#1A1A1A",
+    },
+    "wood": {
+        "fill_a":   "#F5DEB3",  # wheat
+        "fill_b":   "#DEB887",  # burlywood
+        "stroke":   "#8B4513",  # saddle brown
+        "white":    "#A0522D",  # sienna
+        "black":    "#3B1F0F",  # dark brown
+        "page_bg":  "#FAEBD7",  # antique white
+    },
+}
+
+
+# Side label text per color convention.
+LABEL_SETS = {
+    "wb":  ("White Side", "Black Side"),
+    "rb":  ("Red Side",   "Blue Side"),
+}
+
+
 def grid_extent_r_units(N):
     """Return (w_units, h_units): grid extent in r units for NxN pointy-top board."""
     return (SQRT3 * (1.5 * (N - 1) + 1), 1.5 * (N - 1) + 2)
@@ -118,7 +163,8 @@ def hex_fits_stone(r_pt, stone_diameter_mm):
 
 
 def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
-                   pen_paper=False, coords=True, mode="safe"):
+                   pen_paper=False, coords=True, mode="safe",
+                   theme="classic", label_set="wb", corner_dots=False):
     page_w, page_h = pick_page_size(paper, board_size)
     if margin_pt is None:
         if mode in ("makeitwork", "unsafe"):
@@ -141,14 +187,25 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
     offset_x = center_x - (min_x + grid_w / 2)
     offset_y = center_y - (min_y + grid_h / 2)
 
+    theme_def = THEMES[theme]
+    label_a, label_b = LABEL_SETS[label_set]
+
     c = canvas.Canvas(output_filename, pagesize=(page_w, page_h))
+
+    # Optional page background fill (dark/wood themes).
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(0, 0, page_w, page_h, fill=True, stroke=False)
+
     title = (f"HEX BOARD \u2014 PAPER & PENCIL ({board_size} \u00d7 {board_size})"
              if pen_paper else
              f"HEX BOARD ({board_size} \u00d7 {board_size})")
     c.setTitle(title)
 
+    # Title color: contrast against theme background.
+    title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
     c.setFont("Helvetica-Bold", 16)
-    c.setFillColor(colors.HexColor("#1A1A1A"))
+    c.setFillColor(colors.HexColor(title_color))
     title_y = max(14, margin_pt / 2)
     c.drawCentredString(center_x, page_h - title_y, title)
 
@@ -160,7 +217,7 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
         return pts
 
     # 1. Draw hex cells.
-    c.setStrokeColor(colors.HexColor("#7F8C8D"))
+    c.setStrokeColor(colors.HexColor(theme_def["stroke"]))
     c.setLineWidth(1.5 if pen_paper else 1)
     for row in range(board_size):
         for col in range(board_size):
@@ -169,9 +226,9 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
             pts = get_hex_points(cx, cy, r)
 
             if (row + col) % 2 == 0:
-                c.setFillColor(colors.HexColor("#FAFAFA"))
+                c.setFillColor(colors.HexColor(theme_def["fill_a"]))
             else:
-                c.setFillColor(colors.HexColor("#F2F2F2"))
+                c.setFillColor(colors.HexColor(theme_def["fill_b"]))
 
             path = c.beginPath()
             path.moveTo(pts[0][0], pts[0][1])
@@ -180,11 +237,21 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
             path.close()
             c.drawPath(path, fill=True, stroke=True)
 
+    # 1b. Optional corner dots at the four corner hexes.
+    if corner_dots:
+        c.setFillColor(colors.HexColor(theme_def["black"]))
+        c.setStrokeColor(colors.HexColor(theme_def["black"]))
+        for corner_row, corner_col in [(0, 0), (0, board_size - 1),
+                                       (board_size - 1, 0), (board_size - 1, board_size - 1)]:
+            ccx = r * SQRT3 * (corner_col + 0.5 * corner_row) + offset_x
+            ccy = r * 1.5 * corner_row + offset_y
+            c.circle(ccx, ccy, r * 0.18, fill=True, stroke=False)
+
     # 2. Draw thick perimeter bands.
     c.setLineCap(1)
     c.setLineWidth(4)
-    white_color = colors.HexColor("#95A5A6")
-    black_color = colors.HexColor("#1A1A1A")
+    white_color = colors.HexColor(theme_def["white"])
+    black_color = colors.HexColor(theme_def["black"])
 
     # White: row 0 (bottom in user code's coord) and row N-1 (top).
     c.setStrokeColor(white_color)
@@ -243,15 +310,16 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
 
     mid = board_size // 2
     lbl_dist = r * 1.4 if not pen_paper else r * 2.2
-    draw_label("White Side", mid, 0, white_color, 0, -lbl_dist, 0)
-    draw_label("White Side", mid, board_size - 1, white_color, 0, lbl_dist, 0)
-    draw_label("Black Side", 0, mid, black_color, -lbl_dist * 0.866, lbl_dist * 0.5, 60)
-    draw_label("Black Side", board_size - 1, mid, black_color, lbl_dist * 0.866, -lbl_dist * 0.5, 60)
+    draw_label(label_a, mid, 0, white_color, 0, -lbl_dist, 0)
+    draw_label(label_a, mid, board_size - 1, white_color, 0, lbl_dist, 0)
+    draw_label(label_b, 0, mid, black_color, -lbl_dist * 0.866, lbl_dist * 0.5, 60)
+    draw_label(label_b, board_size - 1, mid, black_color, lbl_dist * 0.866, -lbl_dist * 0.5, 60)
 
     # 4. Coordinate labels and footer (paper & pencil mode).
     if coords or pen_paper:
+        coord_color = "#CCCCCC" if theme == "dark" else "#555555"
         c.setFont("Helvetica", 9)
-        c.setFillColor(colors.HexColor("#555555"))
+        c.setFillColor(colors.HexColor(coord_color))
         # Column labels a..k along the top edge (row 0 hex centers, offset slightly outward).
         col_label_y = r * 1.5 * 0 + offset_y - r * 1.15
         for col in range(board_size):
@@ -265,10 +333,12 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
             c.drawCentredString(row_label_x, cy - 3, str(row + 1))
 
     if pen_paper:
+        footer_color = "#AAAAAA" if theme == "dark" else "#777777"
+        first_player = "Red" if label_set == "rb" else "Black (or Red)"
         c.setFont("Helvetica-Oblique", 8)
-        c.setFillColor(colors.HexColor("#777777"))
+        c.setFillColor(colors.HexColor(footer_color))
         c.drawCentredString(center_x, max(14, margin_pt / 2),
-            f"Notation: <col><row> e.g. f7  \u2022  Black (or Red) moves first.  \u2022  Connect your two sides to win.")
+            f"Notation: <col><row> e.g. f7  \u2022  {first_player} moves first.  \u2022  Connect your two sides to win.")
 
     c.showPage()
     c.save()
@@ -297,6 +367,15 @@ if __name__ == "__main__":
                              "Automatically enabled by --pen-paper.")
     parser.add_argument("--no-coords", action="store_true",
                         help="Suppress coordinate labels (default behavior)")
+    parser.add_argument("--theme", type=str, default="classic",
+                        choices=list(THEMES.keys()),
+                        help="Visual theme: classic (default), light, dark, wood")
+    parser.add_argument("--label-set", type=str, default="wb",
+                        choices=list(LABEL_SETS.keys()),
+                        help="Side label convention: wb (White/Black, default) or rb (Red/Blue)")
+    parser.add_argument("--corner-dots", action="store_true",
+                        help="Mark the four corner hexes with filled dots "
+                             "(per Hex board convention; corners belong to both adjacent sides)")
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--safemode", dest="mode", action="store_const", const="safe",
                             default="safe",
@@ -357,7 +436,8 @@ if __name__ == "__main__":
         show_coords = False
 
     r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
-                      pen_paper=args.pen_paper, coords=show_coords, mode=args.mode)
+                      pen_paper=args.pen_paper, coords=show_coords, mode=args.mode,
+                      theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots)
 
     # Diagnostics.
     flat_mm, _ = hex_fits_stone(r, args.stone_size or 0)
