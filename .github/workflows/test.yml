@@ -43,7 +43,10 @@ jobs:
       - name: Install dependencies
         run: pip install reportlab pymupdf
       - name: Run command
-        run: ${{ matrix.command }} -o /tmp/out
+        run: |
+          OUT_EXT=pdf
+          if echo '${{ matrix.command }}' | grep -q -- '--format svg'; then OUT_EXT=svg; fi
+          ${{ matrix.command }} -o /tmp/out.$OUT_EXT
       - name: Verify output exists
         run: |
           test -f /tmp/out.pdf || test -f /tmp/out.svg
