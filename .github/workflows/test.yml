@@ -1,0 +1,70 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        command:
+          # Default
+          - "python generate_board.py 11"
+          # Themes
+          - "python generate_board.py 11 --theme dark --corner-dots"
+          - "python generate_board.py 11 --theme wood"
+          - "python generate_board.py 11 --theme light"
+          # Label sets + corner dots
+          - "python generate_board.py 11 --label-set rb --corner-dots"
+          # Pen-paper with cell coords
+          - "python generate_board.py 11 --pen-paper --cell-coords"
+          # Fit modes
+          - "python generate_board.py 11 --stone-size 19 --safemode"
+          - "python generate_board.py 11 --stone-size 19 --makeitwork"
+          # Multi-board
+          - "python generate_board.py 11 --n-up 4"
+          - "python generate_board.py 11 --pad 3"
+          - "python generate_board.py 11 --sizes 7,9,11"
+          # Rules page
+          - "python generate_board.py 11 --rules"
+          # SVG export
+          - "python generate_board.py 11 --format svg"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install reportlab pymupdf
+      - name: Run command
+        run: ${{ matrix.command }} -o /tmp/out
+      - name: Verify output exists
+        run: |
+          test -f /tmp/out.pdf || test -f /tmp/out.svg
+          echo "OK: produced output"
+      - name: Verify PDF is valid (if applicable)
+        if: matrix.command != 'python generate_board.py 11 --format svg'
+        run: |
+          python -c "
+          import fitz
+          d = fitz.open('/tmp/out.pdf')
+          assert d.page_count >= 1
+          print(f'OK: {d.page_count} page(s)')
+          d.close()
+          "
+      - name: Verify SVG is valid
+        if: matrix.command == 'python generate_board.py 11 --format svg'
+        run: |
+          python -c "
+          with open('/tmp/out.svg') as f: c = f.read()
+          assert c.startswith('<?xml')
+          assert '<svg' in c
+          assert c.rstrip().endswith('</svg>')
+          print('OK: SVG well-formed')
+          "
