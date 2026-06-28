@@ -321,6 +321,153 @@ def draw_board_into_region(c, board_size, region, margin_pt,
     return r
 
 
+def hex_to_svg(cx, cy, radius):
+    """Return SVG points string for a flat-top hex centered at (cx, cy)."""
+    pts = []
+    for i in range(6):
+        angle = math.pi / 3 + math.pi / 3 * i  # 60, 120, 180, 240, 300, 360
+        pts.append(f"{cx + radius * math.cos(angle):.2f},{cy + radius * math.sin(angle):.2f}")
+    return " ".join(pts)
+
+
+def write_svg(output_filename, board_size, paper="letter", margin_pt=None, mode="safe",
+              pen_paper=False, coords=True, theme="classic", label_set="wb",
+              corner_dots=False, rules=False):
+    """Render the board as SVG (vector, web-friendly). Single page only."""
+    page_w, page_h = pick_page_size(paper, board_size)
+    if margin_pt is None:
+        if mode in ("makeitwork", "unsafe"):
+            margin_pt = 4
+        else:
+            margin_pt = DEFAULT_MARGINS_PT[paper.lower()]
+    r, _, _ = compute_r(page_w, page_h, margin_pt, board_size)
+
+    theme_def = THEMES[theme]
+    label_a, label_b = LABEL_SETS[label_set]
+    h = r * SQRT3 / 2
+
+    # Center the rhombus.
+    min_x = -r * SQRT3 / 2
+    max_x = r * SQRT3 * (1.5 * (board_size - 1) + 0.5)
+    min_y = -r
+    max_y = r * 1.5 * (board_size - 1) + r
+    grid_w = max_x - min_x
+    grid_h = max_y - min_y
+    center_x = page_w / 2
+    center_y = page_h / 2
+    offset_x = center_x - (min_x + grid_w / 2)
+    offset_y = center_y - (min_y + grid_h / 2)
+
+    bg = theme_def["page_bg"] or "#FFFFFF"
+    title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+    subtle = "#AAAAAA" if theme == "dark" else "#777777"
+
+    out = [f'<?xml version="1.0" encoding="UTF-8"?>',
+           f'<svg xmlns="http://www.w3.org/2000/svg" width="{page_w:.0f}" height="{page_h:.0f}" viewBox="0 0 {page_w:.0f} {page_h:.0f}">',
+           f'<rect width="{page_w:.0f}" height="{page_h:.0f}" fill="{bg}"/>']
+
+    # Title
+    title = (f"HEX BOARD \u2014 PAPER & PENCIL ({board_size} \u00d7 {board_size})"
+             if pen_paper else f"HEX BOARD ({board_size} \u00d7 {board_size})")
+    title_y = page_h - max(14, margin_pt / 2)
+    out.append(
+        f'<text x="{center_x:.2f}" y="{title_y:.2f}" font-family="Helvetica,Arial,sans-serif" '
+        f'font-size="16" font-weight="bold" fill="{title_color}" text-anchor="middle">{title}</text>'
+    )
+
+    # Hex cells
+    for row in range(board_size):
+        for col in range(board_size):
+            cx = r * SQRT3 * (col + 0.5 * row) + offset_x
+            cy = r * 1.5 * row + offset_y
+            fill = theme_def["fill_a"] if (row + col) % 2 == 0 else theme_def["fill_b"]
+            pts = hex_to_svg(cx, cy, r)
+            out.append(
+                f'<polygon points="{pts}" fill="{fill}" stroke="{theme_def["stroke"]}" stroke-width="1"/>'
+            )
+
+    # Corner dots
+    if corner_dots:
+        for cr, cc in [(0, 0), (0, board_size - 1),
+                       (board_size - 1, 0), (board_size - 1, board_size - 1)]:
+            ccx = r * SQRT3 * (cc + 0.5 * cr) + offset_x
+            ccy = r * 1.5 * cr + offset_y
+            out.append(f'<circle cx="{ccx:.2f}" cy="{ccy:.2f}" r="{r * 0.18:.2f}" fill="{theme_def["black"]}"/>')
+
+    # Perimeter bands: white (row 0 and row N-1), black (col 0 and col N-1).
+    # Emit each edge as a separate <line> so styling is clean.
+    def line(a, b, color, width=4):
+        return (f'<line x1="{a[0]:.2f}" y1="{a[1]:.2f}" x2="{b[0]:.2f}" y2="{b[1]:.2f}" '
+                f'stroke="{color}" stroke-width="{width}" stroke-linecap="round"/>')
+
+    # Helper for vertex at row,col,index (flat-top vertex numbering same as PDF).
+    def vert(row, col, i):
+        cx = r * SQRT3 * (col + 0.5 * row) + offset_x
+        cy = r * 1.5 * row + offset_y
+        angle = math.pi / 3 + math.pi / 3 * i
+        return (cx + r * math.cos(angle), cy + r * math.sin(angle))
+
+    # White band: row 0 (v0-v1) and row N-1 (v3-v4).
+    for col in range(board_size):
+        out.append(line(vert(0, col, 0), vert(0, col, 1), theme_def["white"]))
+    for col in range(board_size):
+        out.append(line(vert(board_size - 1, col, 3), vert(board_size - 1, col, 4), theme_def["white"]))
+    # Black band: col 0 (v2-v3 then v3-v4) and col N-1 (v5-v0 then v0-v1).
+    for row in range(board_size):
+        out.append(line(vert(row, 0, 1), vert(row, 0, 2), theme_def["black"]))
+    for row in range(board_size):
+        out.append(line(vert(row, board_size - 1, 4), vert(row, board_size - 1, 5), theme_def["black"]))
+
+    # Side labels
+    mid = board_size // 2
+    lbl_dist = r * 1.4 if not pen_paper else r * 2.2
+    def lbl(text, col, row, color, dx, dy, angle):
+        cx = r * SQRT3 * (col + 0.5 * row) + offset_x
+        cy = r * 1.5 * row + offset_y
+        out.append(
+            f'<text x="{cx + dx:.2f}" y="{cy + dy:.2f}" font-family="Helvetica,Arial,sans-serif" '
+            f'font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" '
+            f'transform="rotate({angle} {cx + dx:.2f} {cy + dy:.2f})">{text}</text>'
+        )
+
+    lbl(label_a.upper(), mid, 0, theme_def["white"], 0, -lbl_dist, 0)
+    lbl(label_a.upper(), mid, board_size - 1, theme_def["white"], 0, lbl_dist, 0)
+    lbl(label_b.upper(), 0, mid, theme_def["black"], -lbl_dist * 0.866, lbl_dist * 0.5, 60)
+    lbl(label_b.upper(), board_size - 1, mid, theme_def["black"], lbl_dist * 0.866, -lbl_dist * 0.5, -60)
+
+    # Edge coords
+    if coords or pen_paper:
+        coord_color = "#CCCCCC" if theme == "dark" else "#555555"
+        col_label_y = r * 1.5 * 0 + offset_y - r * 1.15
+        for col in range(board_size):
+            cx = r * SQRT3 * (col + 0.5 * 0) + offset_x
+            label = chr(ord('a') + col) if board_size <= 26 else str(col + 1)
+            out.append(
+                f'<text x="{cx:.2f}" y="{col_label_y:.2f}" font-family="Helvetica,Arial,sans-serif" '
+                f'font-size="9" fill="{coord_color}" text-anchor="middle">{label}</text>'
+            )
+        row_label_x = r * SQRT3 * 0 + offset_x - r * 1.25
+        for row in range(board_size):
+            cy = r * 1.5 * row + offset_y
+            out.append(
+                f'<text x="{row_label_x:.2f}" y="{cy - 3:.2f}" font-family="Helvetica,Arial,sans-serif" '
+                f'font-size="9" fill="{coord_color}" text-anchor="middle">{row + 1}</text>'
+            )
+
+    if pen_paper:
+        first_player = "Red" if label_set == "rb" else "Black (or Red)"
+        footer = (f"Notation: &lt;col&gt;&lt;row&gt; e.g. f7  \u2022  {first_player} moves first.  "
+                  f"\u2022  Connect your two sides to win.")
+        out.append(
+            f'<text x="{center_x:.2f}" y="{max(14, margin_pt / 2):.2f}" font-family="Helvetica,Arial,sans-serif" '
+            f'font-size="8" font-style="italic" fill="{subtle}" text-anchor="middle">{footer}</text>'
+        )
+
+    out.append('</svg>')
+    with open(output_filename, "w", encoding="utf-8") as f:
+        f.write("\n".join(out))
+
+
 def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
                    pen_paper=False, coords=True, mode="safe",
                    theme="classic", label_set="wb", corner_dots=False, rules=False):
@@ -599,6 +746,8 @@ if __name__ == "__main__":
                              "Produces one board per page, useful as a reference booklet.")
     parser.add_argument("--rules", action="store_true",
                         help="Append a Hex rules summary page at the end of the PDF")
+    parser.add_argument("--format", type=str, default="pdf", choices=["pdf", "svg"],
+                        help="Output format: pdf (default) or svg")
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--safemode", dest="mode", action="store_const", const="safe",
                             default="safe",
@@ -657,6 +806,18 @@ if __name__ == "__main__":
     show_coords = args.pen_paper or args.coords
     if args.no_coords:
         show_coords = False
+
+    # SVG output: single-board only (no multi-board SVG, no rules).
+    if args.format == "svg":
+        if args.sizes or args.pad or (args.n_up and args.n_up > 1) or args.rules:
+            print("Error: --format svg is single-page only; not compatible with "
+                  "--n-up, --pad, --sizes, or --rules.", file=sys.stderr)
+            sys.exit(2)
+        write_svg(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
+                  mode=args.mode, pen_paper=args.pen_paper, coords=show_coords,
+                  theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots)
+        print(f"Generated {args.size}x{args.size} SVG: {args.output}")
+        sys.exit(0)
 
     # Multi-board dispatch: --sizes, --pad, or --n-up > 1 take over.
     if args.sizes or args.pad or (args.n_up and args.n_up > 1):
