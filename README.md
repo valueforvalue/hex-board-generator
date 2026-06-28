@@ -1,6 +1,7 @@
 # HEX Board Generator
 
 [![Test](https://github.com/valueforvalue/hex-board-generator/actions/workflows/test.yml/badge.svg)](https://github.com/valueforvalue/hex-board-generator/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Generate printable HEX board PDFs sized for Go stones, paper-and-pencil play, or any custom layout.
 
