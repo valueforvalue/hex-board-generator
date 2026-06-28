@@ -162,22 +162,29 @@ def hex_fits_stone(r_pt, stone_diameter_mm):
     return flat_to_flat_mm, stone_diameter_mm / flat_to_flat_mm
 
 
-def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
-                   pen_paper=False, coords=True, mode="safe",
-                   theme="classic", label_set="wb", corner_dots=False):
-    page_w, page_h = pick_page_size(paper, board_size)
-    if margin_pt is None:
-        if mode in ("makeitwork", "unsafe"):
-            # Push hexes to the edge: reserve only stroke width + minimal label space.
-            margin_pt = 4
-        else:
-            margin_pt = DEFAULT_MARGINS_PT[paper.lower()]
-    r, max_w, max_h = compute_r(page_w, page_h, margin_pt, board_size)
+def draw_board_into_region(c, board_size, region, margin_pt,
+                           pen_paper, coords, theme, label_set, corner_dots,
+                           draw_title=True):
+    """Draw one hex board into a rectangular region of an existing canvas.
 
-    center_x = page_w / 2
-    center_y = page_h / 2
+    `region` = (x, y, w, h): bottom-left corner plus size of the region.
+    The board fills the region (with its own internal margin_pt).
+    Returns the r used (in points).
+    """
+    rx, ry, rw, rh = region
+    # Per-region page bg fill (for theme).
+    theme_def = THEMES[theme]
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(rx, ry, rw, rh, fill=True, stroke=False)
 
-    # Center the rhombus precisely.
+    # Largest r fitting this region.
+    gw_units, gh_units = grid_extent_r_units(board_size)
+    r = min(rw / gw_units, rh / gh_units) * 0.92
+
+    center_x = rx + rw / 2
+    center_y = ry + rh / 2
+
     min_x = -r * SQRT3 / 2
     max_x = r * SQRT3 * (1.5 * (board_size - 1) + 0.5)
     min_y = -r
@@ -187,49 +194,35 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
     offset_x = center_x - (min_x + grid_w / 2)
     offset_y = center_y - (min_y + grid_h / 2)
 
-    theme_def = THEMES[theme]
     label_a, label_b = LABEL_SETS[label_set]
 
-    c = canvas.Canvas(output_filename, pagesize=(page_w, page_h))
-
-    # Optional page background fill (dark/wood themes).
-    if theme_def["page_bg"]:
-        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
-        c.rect(0, 0, page_w, page_h, fill=True, stroke=False)
-
-    title = (f"HEX BOARD \u2014 PAPER & PENCIL ({board_size} \u00d7 {board_size})"
-             if pen_paper else
-             f"HEX BOARD ({board_size} \u00d7 {board_size})")
-    c.setTitle(title)
-
-    # Title color: contrast against theme background.
-    title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
-    c.setFont("Helvetica-Bold", 16)
-    c.setFillColor(colors.HexColor(title_color))
-    title_y = max(14, margin_pt / 2)
-    c.drawCentredString(center_x, page_h - title_y, title)
+    if draw_title:
+        title = (f"HEX BOARD \u2014 PAPER & PENCIL ({board_size} \u00d7 {board_size})"
+                 if pen_paper else
+                 f"HEX BOARD ({board_size} \u00d7 {board_size})")
+        title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+        c.setFont("Helvetica-Bold", 12)  # smaller for sub-boards
+        c.setFillColor(colors.HexColor(title_color))
+        c.drawCentredString(center_x, ry + rh - 12, title)
 
     def get_hex_points(cx, cy, radius):
         pts = []
         for i in range(6):
-            angle = math.pi / 6 + i * math.pi / 3  # 30, 90, ..., 330 deg (pointy-top)
+            angle = math.pi / 6 + i * math.pi / 3
             pts.append((cx + radius * math.cos(angle), cy + radius * math.sin(angle)))
         return pts
 
-    # 1. Draw hex cells.
     c.setStrokeColor(colors.HexColor(theme_def["stroke"]))
-    c.setLineWidth(1.5 if pen_paper else 1)
+    c.setLineWidth(1.0)
     for row in range(board_size):
         for col in range(board_size):
             cx = r * SQRT3 * (col + 0.5 * row) + offset_x
             cy = r * 1.5 * row + offset_y
             pts = get_hex_points(cx, cy, r)
-
             if (row + col) % 2 == 0:
                 c.setFillColor(colors.HexColor(theme_def["fill_a"]))
             else:
                 c.setFillColor(colors.HexColor(theme_def["fill_b"]))
-
             path = c.beginPath()
             path.moveTo(pts[0][0], pts[0][1])
             for p in pts[1:]:
@@ -237,23 +230,19 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
             path.close()
             c.drawPath(path, fill=True, stroke=True)
 
-    # 1b. Optional corner dots at the four corner hexes.
     if corner_dots:
         c.setFillColor(colors.HexColor(theme_def["black"]))
-        c.setStrokeColor(colors.HexColor(theme_def["black"]))
-        for corner_row, corner_col in [(0, 0), (0, board_size - 1),
-                                       (board_size - 1, 0), (board_size - 1, board_size - 1)]:
-            ccx = r * SQRT3 * (corner_col + 0.5 * corner_row) + offset_x
-            ccy = r * 1.5 * corner_row + offset_y
+        for cr, cc in [(0, 0), (0, board_size - 1),
+                       (board_size - 1, 0), (board_size - 1, board_size - 1)]:
+            ccx = r * SQRT3 * (cc + 0.5 * cr) + offset_x
+            ccy = r * 1.5 * cr + offset_y
             c.circle(ccx, ccy, r * 0.18, fill=True, stroke=False)
 
-    # 2. Draw thick perimeter bands.
     c.setLineCap(1)
-    c.setLineWidth(4)
+    c.setLineWidth(3)
     white_color = colors.HexColor(theme_def["white"])
     black_color = colors.HexColor(theme_def["black"])
 
-    # White: row 0 (bottom in user code's coord) and row N-1 (top).
     c.setStrokeColor(white_color)
     path = c.beginPath()
     pts = get_hex_points(r * SQRT3 * 0 + offset_x, r * 1.5 * 0 + offset_y, r)
@@ -274,7 +263,6 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
         path.lineTo(pts[0][0], pts[0][1])
     c.drawPath(path)
 
-    # Black: col 0 and col N-1.
     c.setStrokeColor(black_color)
     path = c.beginPath()
     col = 0
@@ -296,12 +284,14 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
         path.lineTo(pts[0][0], pts[0][1])
     c.drawPath(path)
 
-    # 3. Edge labels.
+    lbl_scale = 0.7 if r < 15 else 1.0
+    lbl_dist = r * 1.4 * lbl_scale
+    c.setFont("Helvetica-Bold", 10 if r < 15 else 12)
+
     def draw_label(text, col, row, color, dx, dy, angle):
         cx = r * SQRT3 * (col + 0.5 * row) + offset_x
         cy = r * 1.5 * row + offset_y
         c.saveState()
-        c.setFont("Helvetica-Bold", 12)
         c.setFillColor(color)
         c.translate(cx + dx, cy + dy)
         c.rotate(angle)
@@ -309,41 +299,164 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
         c.restoreState()
 
     mid = board_size // 2
-    lbl_dist = r * 1.4 if not pen_paper else r * 2.2
     draw_label(label_a, mid, 0, white_color, 0, -lbl_dist, 0)
     draw_label(label_a, mid, board_size - 1, white_color, 0, lbl_dist, 0)
     draw_label(label_b, 0, mid, black_color, -lbl_dist * 0.866, lbl_dist * 0.5, 60)
     draw_label(label_b, board_size - 1, mid, black_color, lbl_dist * 0.866, -lbl_dist * 0.5, 60)
 
-    # 4. Coordinate labels and footer (paper & pencil mode).
     if coords or pen_paper:
         coord_color = "#CCCCCC" if theme == "dark" else "#555555"
-        c.setFont("Helvetica", 9)
+        c.setFont("Helvetica", 7 if r < 15 else 9)
         c.setFillColor(colors.HexColor(coord_color))
-        # Column labels a..k along the top edge (row 0 hex centers, offset slightly outward).
         col_label_y = r * 1.5 * 0 + offset_y - r * 1.15
         for col in range(board_size):
             cx = r * SQRT3 * (col + 0.5 * 0) + offset_x
             label = chr(ord('a') + col) if board_size <= 26 else str(col + 1)
             c.drawCentredString(cx, col_label_y, label)
-        # Row labels 1..N along the left edge (col 0 hex centers).
         row_label_x = r * SQRT3 * 0 + offset_x - r * 1.25
         for row in range(board_size):
             cy = r * 1.5 * row + offset_y
             c.drawCentredString(row_label_x, cy - 3, str(row + 1))
+
+    return r
+
+
+def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
+                   pen_paper=False, coords=True, mode="safe",
+                   theme="classic", label_set="wb", corner_dots=False):
+    page_w, page_h = pick_page_size(paper, board_size)
+    if margin_pt is None:
+        if mode in ("makeitwork", "unsafe"):
+            margin_pt = 4
+        else:
+            margin_pt = DEFAULT_MARGINS_PT[paper.lower()]
+    r, max_w, max_h = compute_r(page_w, page_h, margin_pt, board_size)
+
+    c = canvas.Canvas(output_filename, pagesize=(page_w, page_h))
+    theme_def = THEMES[theme]
+
+    # Page-level title only for single-board output (draw_board_into_region handles sub-board titles).
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(0, 0, page_w, page_h, fill=True, stroke=False)
+
+    title = (f"HEX BOARD \u2014 PAPER & PENCIL ({board_size} \u00d7 {board_size})"
+             if pen_paper else
+             f"HEX BOARD ({board_size} \u00d7 {board_size})")
+    c.setTitle(title)
+    title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+    c.setFont("Helvetica-Bold", 16)
+    c.setFillColor(colors.HexColor(title_color))
+    title_y = max(14, margin_pt / 2)
+    c.drawCentredString(page_w / 2, page_h - title_y, title)
+
+    draw_board_into_region(
+        c, board_size, (0, 0, page_w, page_h), margin_pt,
+        pen_paper, coords, theme, label_set, corner_dots,
+        draw_title=False,
+    )
 
     if pen_paper:
         footer_color = "#AAAAAA" if theme == "dark" else "#777777"
         first_player = "Red" if label_set == "rb" else "Black (or Red)"
         c.setFont("Helvetica-Oblique", 8)
         c.setFillColor(colors.HexColor(footer_color))
-        c.drawCentredString(center_x, max(14, margin_pt / 2),
+        c.drawCentredString(page_w / 2, max(14, margin_pt / 2),
             f"Notation: <col><row> e.g. f7  \u2022  {first_player} moves first.  \u2022  Connect your two sides to win.")
 
     c.showPage()
     c.save()
 
     return r
+
+
+def _n_up_layout(n):
+    """Return (cols, rows) for a roughly-square N-up layout."""
+    cols = int(math.ceil(math.sqrt(n)))
+    rows = int(math.ceil(n / cols))
+    return cols, rows
+
+
+def _generate_multi(args, show_coords):
+    """Render --sizes, --pad, or --n-up boards into a single PDF."""
+    pw, ph = pick_page_size(args.paper, args.size)
+    c = canvas.Canvas(args.output, pagesize=(pw, ph))
+    theme_def = THEMES[args.theme]
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(0, 0, pw, ph, fill=True, stroke=False)
+
+    margin_pt = args.margin if args.margin is not None else (
+        4 if args.mode in ("makeitwork", "unsafe") else DEFAULT_MARGINS_PT[args.paper]
+    )
+
+    if args.sizes:
+        sizes = [int(s.strip()) for s in args.sizes.split(",") if s.strip()]
+        if not sizes:
+            print("Error: --sizes requires a comma-separated list.", file=sys.stderr)
+            sys.exit(2)
+        # Title for booklet.
+        title_color = "#FFFFFF" if args.theme == "dark" else "#1A1A1A"
+        c.setFont("Helvetica-Bold", 16)
+        c.setFillColor(colors.HexColor(title_color))
+        title = "HEX BOARD REFERENCE  " + "  \u2022  ".join(
+            f"{s}x{s}" for s in sizes
+        )
+        c.setTitle("Hex Board Reference")
+        c.drawCentredString(pw / 2, ph - max(14, margin_pt / 2), title)
+        for sz in sizes:
+            draw_board_into_region(
+                c, sz, (0, 0, pw, ph), margin_pt,
+                args.pen_paper, show_coords, args.theme, args.label_set, args.corner_dots,
+                draw_title=True,
+            )
+            c.showPage()
+            # Page bg fill resets each page.
+            if theme_def["page_bg"]:
+                c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+                c.rect(0, 0, pw, ph, fill=True, stroke=False)
+        print(f"Generated {len(sizes)}-page reference: sizes {sizes} on {args.paper}.")
+
+    elif args.pad:
+        for i in range(args.pad):
+            draw_board_into_region(
+                c, args.size, (0, 0, pw, ph), margin_pt,
+                args.pen_paper, show_coords, args.theme, args.label_set, args.corner_dots,
+                draw_title=True,
+            )
+            c.showPage()
+            if theme_def["page_bg"]:
+                c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+                c.rect(0, 0, pw, ph, fill=True, stroke=False)
+        print(f"Generated {args.pad}-sheet pad of {args.size}x{args.size} boards on {args.paper}.")
+
+    else:  # --n-up
+        n = args.n_up
+        cols, rows = _n_up_layout(n)
+        gutter = 18  # points between boards
+        cell_w = (pw - gutter * (cols + 1)) / cols
+        cell_h = (ph - gutter * (rows + 1)) / rows
+        # Title across top.
+        title_color = "#FFFFFF" if args.theme == "dark" else "#1A1A1A"
+        c.setFont("Helvetica-Bold", 14)
+        c.setFillColor(colors.HexColor(title_color))
+        c.setTitle(f"Hex Board {args.size}x{args.size} ({n}-up)")
+        c.drawCentredString(pw / 2, ph - 12, f"{args.size}x{args.size}  \u00d7  {n} PER PAGE")
+
+        for i in range(n):
+            r = i // cols
+            cn = i % cols
+            x = gutter + cn * (cell_w + gutter)
+            y = gutter + r * (cell_h + gutter)
+            draw_board_into_region(
+                c, args.size, (x, y, cell_w, cell_h), margin_pt,
+                args.pen_paper, show_coords, args.theme, args.label_set, args.corner_dots,
+                draw_title=False,
+            )
+        c.showPage()
+        print(f"Generated 1-page {cols}x{rows} handout ({n} copies of {args.size}x{args.size}) on {args.paper}.")
+
+    c.save()
 
 
 if __name__ == "__main__":
@@ -376,6 +489,14 @@ if __name__ == "__main__":
     parser.add_argument("--corner-dots", action="store_true",
                         help="Mark the four corner hexes with filled dots "
                              "(per Hex board convention; corners belong to both adjacent sides)")
+    parser.add_argument("--n-up", type=int, default=1, metavar="N",
+                        help="Pack N boards onto each page (e.g., 4 for a 2x2 grid handout).")
+    parser.add_argument("--pad", type=int, default=None, metavar="N",
+                        help="Generate N copies of the board, one per page (like the original "
+                             "1942 Polygon 50-sheet pads).")
+    parser.add_argument("--sizes", type=str, default=None, metavar="LIST",
+                        help="Comma-separated list of board sizes (e.g., '9,11,13'). "
+                             "Produces one board per page, useful as a reference booklet.")
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--safemode", dest="mode", action="store_const", const="safe",
                             default="safe",
@@ -434,6 +555,11 @@ if __name__ == "__main__":
     show_coords = args.pen_paper or args.coords
     if args.no_coords:
         show_coords = False
+
+    # Multi-board dispatch: --sizes, --pad, or --n-up > 1 take over.
+    if args.sizes or args.pad or (args.n_up and args.n_up > 1):
+        _generate_multi(args, show_coords)
+        sys.exit(0)
 
     r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
                       pen_paper=args.pen_paper, coords=show_coords, mode=args.mode,
