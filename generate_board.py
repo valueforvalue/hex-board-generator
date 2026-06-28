@@ -164,7 +164,7 @@ def hex_fits_stone(r_pt, stone_diameter_mm):
 
 def draw_board_into_region(c, board_size, region, margin_pt,
                            pen_paper, coords, theme, label_set, corner_dots,
-                           draw_title=True):
+                           draw_title=True, cell_coords=False):
     """Draw one hex board into a rectangular region of an existing canvas.
 
     `region` = (x, y, w, h): bottom-left corner plus size of the region.
@@ -318,6 +318,17 @@ def draw_board_into_region(c, board_size, region, margin_pt,
             cy = r * 1.5 * row + offset_y
             c.drawCentredString(row_label_x, cy - 3, str(row + 1))
 
+    if cell_coords:
+        cell_color = "#BBBBBB" if theme == "dark" else "#888888"
+        c.setFont("Helvetica", max(5, r * 0.18))
+        c.setFillColor(colors.HexColor(cell_color))
+        for row in range(board_size):
+            for col in range(board_size):
+                ccx = r * SQRT3 * (col + 0.5 * row) + offset_x
+                ccy = r * 1.5 * row + offset_y
+                col_lbl = chr(ord('a') + col) if board_size <= 26 else str(col + 1)
+                c.drawCentredString(ccx, ccy - r * 0.04, f"{col_lbl}{row + 1}")
+
     return r
 
 
@@ -470,7 +481,8 @@ def write_svg(output_filename, board_size, paper="letter", margin_pt=None, mode=
 
 def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
                    pen_paper=False, coords=True, mode="safe",
-                   theme="classic", label_set="wb", corner_dots=False, rules=False):
+                   theme="classic", label_set="wb", corner_dots=False, rules=False,
+                   cell_coords=False):
     page_w, page_h = pick_page_size(paper, board_size)
     if margin_pt is None:
         if mode in ("makeitwork", "unsafe"):
@@ -500,7 +512,7 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
     draw_board_into_region(
         c, board_size, (0, 0, page_w, page_h), margin_pt,
         pen_paper, coords, theme, label_set, corner_dots,
-        draw_title=False,
+        draw_title=False, cell_coords=cell_coords,
     )
 
     if pen_paper:
@@ -642,7 +654,7 @@ def _generate_multi(args, show_coords):
             draw_board_into_region(
                 c, sz, (0, 0, pw, ph), margin_pt,
                 args.pen_paper, show_coords, args.theme, args.label_set, args.corner_dots,
-                draw_title=True,
+                draw_title=True, cell_coords=args.cell_coords,
             )
             c.showPage()
             # Page bg fill resets each page.
@@ -660,7 +672,7 @@ def _generate_multi(args, show_coords):
             draw_board_into_region(
                 c, args.size, (0, 0, pw, ph), margin_pt,
                 args.pen_paper, show_coords, args.theme, args.label_set, args.corner_dots,
-                draw_title=True,
+                draw_title=True, cell_coords=args.cell_coords,
             )
             c.showPage()
             if theme_def["page_bg"]:
@@ -693,7 +705,7 @@ def _generate_multi(args, show_coords):
             draw_board_into_region(
                 c, args.size, (x, y, cell_w, cell_h), margin_pt,
                 args.pen_paper, show_coords, args.theme, args.label_set, args.corner_dots,
-                draw_title=False,
+                draw_title=False, cell_coords=args.cell_coords,
             )
         c.showPage()
         print(f"Generated 1-page {cols}x{rows} handout ({n} copies of {args.size}x{args.size}) on {args.paper}.")
@@ -736,6 +748,8 @@ if __name__ == "__main__":
     parser.add_argument("--corner-dots", action="store_true",
                         help="Mark the four corner hexes with filled dots "
                              "(per Hex board convention; corners belong to both adjacent sides)")
+    parser.add_argument("--cell-coords", action="store_true",
+                        help="Print coordinate label inside each hex cell (e.g. f7)")
     parser.add_argument("--n-up", type=int, default=1, metavar="N",
                         help="Pack N boards onto each page (e.g., 4 for a 2x2 grid handout).")
     parser.add_argument("--pad", type=int, default=None, metavar="N",
@@ -827,7 +841,7 @@ if __name__ == "__main__":
     r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
                       pen_paper=args.pen_paper, coords=show_coords, mode=args.mode,
                       theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots,
-                      rules=args.rules)
+                      rules=args.rules, cell_coords=args.cell_coords)
 
     # Diagnostics.
     flat_mm, _ = hex_fits_stone(r, args.stone_size or 0)
