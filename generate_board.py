@@ -323,7 +323,7 @@ def draw_board_into_region(c, board_size, region, margin_pt,
 
 def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
                    pen_paper=False, coords=True, mode="safe",
-                   theme="classic", label_set="wb", corner_dots=False):
+                   theme="classic", label_set="wb", corner_dots=False, rules=False):
     page_w, page_h = pick_page_size(paper, board_size)
     if margin_pt is None:
         if mode in ("makeitwork", "unsafe"):
@@ -364,10 +364,97 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
         c.drawCentredString(page_w / 2, max(14, margin_pt / 2),
             f"Notation: <col><row> e.g. f7  \u2022  {first_player} moves first.  \u2022  Connect your two sides to win.")
 
-    c.showPage()
+    if rules:
+        c.showPage()
+        draw_rules_page(c, page_w, page_h, theme=theme, label_set=label_set)
+        c.showPage()
+    else:
+        c.showPage()
     c.save()
 
     return r
+
+
+def draw_rules_page(c, page_w, page_h, theme="classic", label_set="wb"):
+    """Draw a one-page Hex rules summary as the final page of the PDF."""
+    theme_def = THEMES[theme]
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(0, 0, page_w, page_h, fill=True, stroke=False)
+
+    text_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+    subtle_color = "#888888" if theme != "dark" else "#BBBBBB"
+    accent = theme_def["black"]
+    p1, p2 = LABEL_SETS[label_set]
+
+    margin = 54  # 0.75 inch
+    x = margin
+    y = page_h - margin
+    max_w = page_w - 2 * margin
+
+    # Title
+    c.setFont("Helvetica-Bold", 24)
+    c.setFillColor(colors.HexColor(text_color))
+    c.drawString(x, y, "How to Play Hex")
+    y -= 30
+
+    c.setFont("Helvetica-Oblique", 11)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawString(x, y, "Invented by Piet Hein (1942) \u2022 Rediscovered by John Nash (1949)")
+    y -= 30
+
+    def section(title_text):
+        nonlocal y
+        c.setFont("Helvetica-Bold", 14)
+        c.setFillColor(colors.HexColor(accent))
+        c.drawString(x, y, title_text)
+        y -= 18
+
+    def body(text):
+        nonlocal y
+        c.setFont("Helvetica", 11)
+        c.setFillColor(colors.HexColor(text_color))
+        words = text.split()
+        line = ""
+        for w in words:
+            test = (line + " " + w).strip()
+            if c.stringWidth(test, "Helvetica", 11) > max_w:
+                c.drawString(x, y, line)
+                y -= 14
+                line = w
+            else:
+                line = test
+        if line:
+            c.drawString(x, y, line)
+            y -= 14
+        y -= 4
+
+    section("Players")
+    body("Two players. One plays " + p1 + ", the other plays " + p2 + ".")
+
+    section("Setup")
+    body("Use the board on the previous page. Decide who goes first (typically the " + p2.split()[0] + " player).")
+
+    section("Goal")
+    body("Be the first to form a connected chain of your own stones linking your two assigned sides of the board.")
+
+    section("How to play")
+    body("On your turn, place a stone of your color on any empty hex cell. Stones are never moved or removed.")
+
+    section("Win condition")
+    body("Connect your two opposite sides with a chain of your stones. A draw is impossible \u2014 the Brouwer fixed-point theorem guarantees one player must win.")
+
+    section("The swap rule (recommended for fairness)")
+    body("After the first player makes their opening move, the second player may choose to either keep their color or swap colors. This largely nullifies the first-move advantage.")
+
+    section("Coordinate notation")
+    body("Columns are lettered a, b, c, ... from left to right. Rows are numbered 1, 2, 3, ... from bottom to top. A cell's address is column+row, e.g. \u201cf7\u201d refers to column f, row 7.")
+
+    # Footer
+    c.setFont("Helvetica-Oblique", 8)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawCentredString(page_w / 2, margin / 2,
+        "Hex is a member of the connection game family. See en.wikipedia.org/wiki/Hex_(board_game) for the full rules.")
 
 
 def _n_up_layout(n):
@@ -416,6 +503,10 @@ def _generate_multi(args, show_coords):
                 c.setFillColor(colors.HexColor(theme_def["page_bg"]))
                 c.rect(0, 0, pw, ph, fill=True, stroke=False)
         print(f"Generated {len(sizes)}-page reference: sizes {sizes} on {args.paper}.")
+        if args.rules:
+            draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set)
+            c.showPage()
+            print("  + rules page")
 
     elif args.pad:
         for i in range(args.pad):
@@ -429,6 +520,10 @@ def _generate_multi(args, show_coords):
                 c.setFillColor(colors.HexColor(theme_def["page_bg"]))
                 c.rect(0, 0, pw, ph, fill=True, stroke=False)
         print(f"Generated {args.pad}-sheet pad of {args.size}x{args.size} boards on {args.paper}.")
+        if args.rules:
+            draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set)
+            c.showPage()
+            print("  + rules page")
 
     else:  # --n-up
         n = args.n_up
@@ -455,6 +550,11 @@ def _generate_multi(args, show_coords):
             )
         c.showPage()
         print(f"Generated 1-page {cols}x{rows} handout ({n} copies of {args.size}x{args.size}) on {args.paper}.")
+
+    if args.rules:
+        draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set)
+        c.showPage()
+        print("  + rules page")
 
     c.save()
 
@@ -497,6 +597,8 @@ if __name__ == "__main__":
     parser.add_argument("--sizes", type=str, default=None, metavar="LIST",
                         help="Comma-separated list of board sizes (e.g., '9,11,13'). "
                              "Produces one board per page, useful as a reference booklet.")
+    parser.add_argument("--rules", action="store_true",
+                        help="Append a Hex rules summary page at the end of the PDF")
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--safemode", dest="mode", action="store_const", const="safe",
                             default="safe",
@@ -563,7 +665,8 @@ if __name__ == "__main__":
 
     r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
                       pen_paper=args.pen_paper, coords=show_coords, mode=args.mode,
-                      theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots)
+                      theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots,
+                      rules=args.rules)
 
     # Diagnostics.
     flat_mm, _ = hex_fits_stone(r, args.stone_size or 0)

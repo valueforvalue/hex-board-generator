@@ -68,6 +68,10 @@ Show or hide edge coordinate labels independently.
 | `--pad N` | N copies, one per page (1942 Polygon 50-sheet pad style) |
 | `--sizes 9,11,13` | One page per size (reference booklet) |
 
+### Rules sheet (`--rules`)
+
+Append a one-page Hex rules summary at the end of the PDF. Sections cover Players, Setup, Goal, How to play, Win condition, the swap rule, and coordinate notation. Adapts to the chosen `--theme` and `--label-set`.
+
 ## Gallery
 
 ### Default
@@ -138,6 +142,16 @@ Auto-selects ANSI-B (17×22) for 19mm stones with 63% comfortable fit.
 
 ![Stone play](docs/gallery/08_stone19.png)
 
+### Rules sheet (`--rules`)
+
+```bash
+python generate_board.py 11 --rules
+```
+
+Appends a one-page Hex rules summary at the end of the PDF.
+
+![Rules page](docs/gallery/09_rules.png)
+
 ## Full flag reference
 
 ```
@@ -157,6 +171,7 @@ python generate_board.py <size> [options]
   --n-up N            Pack N boards per page
   --pad N             Generate N copies (one per page)
   --sizes LIST        Comma-separated sizes, one page each
+  --rules             Append a Hex rules summary page
   --safemode          Default. Stone ≤ 70% hex flat-to-flat.
   --makeitwork        Stone ≤ 85%. Shrinks margin to 4pt.
   --unsafe            Stone ≤ 100%. Flush fit.
