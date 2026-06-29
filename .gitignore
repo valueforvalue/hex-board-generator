@@ -1,6 +1,7 @@
 # Generated PDFs and preview PNGs (regenerate via the script)
 hex_board.pdf
 hex_board.png
+hex_board_*.pdf
 test_*.pdf
 test_*.png
 

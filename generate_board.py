@@ -86,6 +86,11 @@ THEMES = {
 }
 
 
+# Go-style column labels: a..h, skip i, then j..z (skipping i per Go convention).
+def _go_col_letter(col):
+    return chr(ord('a') + col + (1 if col >= 8 else 0))
+
+
 # Side label text per color convention.
 LABEL_SETS = {
     "wb":  ("White Side", "Black Side"),
@@ -304,30 +309,34 @@ def draw_board_into_region(c, board_size, region, margin_pt,
     draw_label(label_b, 0, mid, black_color, -lbl_dist * 0.866, lbl_dist * 0.5, 60)
     draw_label(label_b, board_size - 1, mid, black_color, lbl_dist * 0.866, -lbl_dist * 0.5, 60)
 
-    if coords or pen_paper:
+    # pen-paper / coords: print labels INSIDE each cell when hexes are large enough
+    # to be legible; fall back to outside-edge labels for tiny boards.
+    inside_cell = r >= 11
+    if (coords or pen_paper) and not inside_cell:
         coord_color = "#CCCCCC" if theme == "dark" else "#555555"
-        c.setFont("Helvetica", 7 if r < 15 else 9)
+        c.setFont("Helvetica-Bold", 9 if r < 15 else 11)
         c.setFillColor(colors.HexColor(coord_color))
-        col_label_y = r * 1.5 * 0 + offset_y - r * 1.15
+        col_label_y = r * 1.5 * 0 + offset_y - r * 1.05
         for col in range(board_size):
             cx = r * SQRT3 * (col + 0.5 * 0) + offset_x
-            label = chr(ord('a') + col) if board_size <= 26 else str(col + 1)
+            label = _go_col_letter(col) if board_size <= 25 else str(col + 1)
             c.drawCentredString(cx, col_label_y, label)
-        row_label_x = r * SQRT3 * 0 + offset_x - r * 1.25
+        row_label_x = r * SQRT3 * 0 + offset_x - r * 1.05
         for row in range(board_size):
             cy = r * 1.5 * row + offset_y
             c.drawCentredString(row_label_x, cy - 3, str(row + 1))
 
-    if cell_coords:
-        cell_color = "#BBBBBB" if theme == "dark" else "#888888"
-        c.setFont("Helvetica", max(5, r * 0.18))
+    if cell_coords or ((coords or pen_paper) and inside_cell):
+        cell_color = "#7A7A7A" if theme == "dark" else "#A8A8A8"
+        cell_font = max(6, r * 0.32)
+        c.setFont("Helvetica", cell_font)
         c.setFillColor(colors.HexColor(cell_color))
         for row in range(board_size):
             for col in range(board_size):
                 ccx = r * SQRT3 * (col + 0.5 * row) + offset_x
                 ccy = r * 1.5 * row + offset_y
-                col_lbl = chr(ord('a') + col) if board_size <= 26 else str(col + 1)
-                c.drawCentredString(ccx, ccy - r * 0.04, f"{col_lbl}{row + 1}")
+                col_lbl = _go_col_letter(col) if board_size <= 25 else str(col + 1)
+                c.drawCentredString(ccx, ccy - cell_font * 0.35, f"{col_lbl}{row + 1}")
 
     return r
 
@@ -446,28 +455,46 @@ def write_svg(output_filename, board_size, paper="letter", margin_pt=None, mode=
     lbl(label_b.upper(), 0, mid, theme_def["black"], -lbl_dist * 0.866, lbl_dist * 0.5, 60)
     lbl(label_b.upper(), board_size - 1, mid, theme_def["black"], lbl_dist * 0.866, -lbl_dist * 0.5, -60)
 
-    # Edge coords
-    if coords or pen_paper:
+    # Edge coords: only when hexes are too small for legible inside-cell labels.
+    if (coords or pen_paper) and r < 11:
         coord_color = "#CCCCCC" if theme == "dark" else "#555555"
-        col_label_y = r * 1.5 * 0 + offset_y - r * 1.15
+        col_label_y = r * 1.5 * 0 + offset_y - r * 1.05
         for col in range(board_size):
             cx = r * SQRT3 * (col + 0.5 * 0) + offset_x
-            label = chr(ord('a') + col) if board_size <= 26 else str(col + 1)
+            label = _go_col_letter(col) if board_size <= 25 else str(col + 1)
             out.append(
                 f'<text x="{cx:.2f}" y="{col_label_y:.2f}" font-family="Helvetica,Arial,sans-serif" '
-                f'font-size="9" fill="{coord_color}" text-anchor="middle">{label}</text>'
+                f'font-weight="bold" font-size="11" fill="{coord_color}" text-anchor="middle">{label}</text>'
             )
-        row_label_x = r * SQRT3 * 0 + offset_x - r * 1.25
+        row_label_x = r * SQRT3 * 0 + offset_x - r * 1.05
         for row in range(board_size):
             cy = r * 1.5 * row + offset_y
             out.append(
                 f'<text x="{row_label_x:.2f}" y="{cy - 3:.2f}" font-family="Helvetica,Arial,sans-serif" '
-                f'font-size="9" fill="{coord_color}" text-anchor="middle">{row + 1}</text>'
+                f'font-weight="bold" font-size="11" fill="{coord_color}" text-anchor="middle">{row + 1}</text>'
             )
+
+    # Inside-cell coords (Go notation): default for pen-paper / --coords on legible boards.
+    if (coords or pen_paper) and r >= 11:
+        cell_color = "#7A7A7A" if theme == "dark" else "#A8A8A8"
+        cell_font = max(6, r * 0.32)
+        for row in range(board_size):
+            for col in range(board_size):
+                ccx = r * SQRT3 * (col + 0.5 * row) + offset_x
+                ccy = r * 1.5 * row + offset_y
+                col_lbl = _go_col_letter(col) if board_size <= 25 else str(col + 1)
+                out.append(
+                    f'<text x="{ccx:.2f}" y="{ccy + cell_font * 0.35:.2f}" font-family="Helvetica,Arial,sans-serif" '
+                    f'font-size="{cell_font:.1f}" fill="{cell_color}" text-anchor="middle">{col_lbl}{row + 1}</text>'
+                )
 
     if pen_paper:
         first_player = "Red" if label_set == "rb" else "Black (or Red)"
-        footer = (f"Notation: &lt;col&gt;&lt;row&gt; e.g. f7  \u2022  {first_player} moves first.  "
+        if stone_mode:
+            hint = "Place stones in hex centers. \u2022 Notation: &lt;col&gt;&lt;row&gt; e.g. f7."
+        else:
+            hint = "Mark cells with X / O / your initial. \u2022 Notation: &lt;col&gt;&lt;row&gt; e.g. f7."
+        footer = (f"{hint}  \u2022  {first_player} moves first.  "
                   f"\u2022  Connect your two sides to win.")
         out.append(
             f'<text x="{center_x:.2f}" y="{max(14, margin_pt / 2):.2f}" font-family="Helvetica,Arial,sans-serif" '
@@ -482,7 +509,7 @@ def write_svg(output_filename, board_size, paper="letter", margin_pt=None, mode=
 def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
                    pen_paper=False, coords=True, mode="safe",
                    theme="classic", label_set="wb", corner_dots=False, rules=False,
-                   cell_coords=False):
+                   cell_coords=False, stone_mode=False):
     page_w, page_h = pick_page_size(paper, board_size)
     if margin_pt is None:
         if mode in ("makeitwork", "unsafe"):
@@ -520,12 +547,16 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
         first_player = "Red" if label_set == "rb" else "Black (or Red)"
         c.setFont("Helvetica-Oblique", 8)
         c.setFillColor(colors.HexColor(footer_color))
+        if stone_mode:
+            hint = "Place stones in hex centers. \u2022 Notation: <col><row> e.g. f7."
+        else:
+            hint = f"Mark cells with X / O / your initial. \u2022 Notation: <col><row> e.g. f7."
         c.drawCentredString(page_w / 2, max(14, margin_pt / 2),
-            f"Notation: <col><row> e.g. f7  \u2022  {first_player} moves first.  \u2022  Connect your two sides to win.")
+            f"{hint}  \u2022  {first_player} moves first.  \u2022  Connect your two sides to win.")
 
     if rules:
         c.showPage()
-        draw_rules_page(c, page_w, page_h, theme=theme, label_set=label_set)
+        draw_rules_page(c, page_w, page_h, theme=theme, label_set=label_set, stone_mode=stone_mode)
         c.showPage()
     else:
         c.showPage()
@@ -534,7 +565,7 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
     return r
 
 
-def draw_rules_page(c, page_w, page_h, theme="classic", label_set="wb"):
+def draw_rules_page(c, page_w, page_h, theme="classic", label_set="wb", stone_mode=False):
     """Draw a one-page Hex rules summary as the final page of the PDF."""
     theme_def = THEMES[theme]
     if theme_def["page_bg"]:
@@ -552,53 +583,59 @@ def draw_rules_page(c, page_w, page_h, theme="classic", label_set="wb"):
     max_w = page_w - 2 * margin
 
     # Title
-    c.setFont("Helvetica-Bold", 24)
+    c.setFont("Helvetica-Bold", 30)
     c.setFillColor(colors.HexColor(text_color))
     c.drawString(x, y, "How to Play Hex")
-    y -= 30
+    y -= 36
 
-    c.setFont("Helvetica-Oblique", 11)
+    c.setFont("Helvetica-Oblique", 13)
     c.setFillColor(colors.HexColor(subtle_color))
     c.drawString(x, y, "Invented by Piet Hein (1942) \u2022 Rediscovered by John Nash (1949)")
-    y -= 30
+    y -= 36
 
     def section(title_text):
         nonlocal y
-        c.setFont("Helvetica-Bold", 14)
+        c.setFont("Helvetica-Bold", 18)
         c.setFillColor(colors.HexColor(accent))
         c.drawString(x, y, title_text)
-        y -= 18
+        y -= 24
 
     def body(text):
         nonlocal y
-        c.setFont("Helvetica", 11)
+        c.setFont("Helvetica", 14)
         c.setFillColor(colors.HexColor(text_color))
         words = text.split()
         line = ""
         for w in words:
             test = (line + " " + w).strip()
-            if c.stringWidth(test, "Helvetica", 11) > max_w:
+            if c.stringWidth(test, "Helvetica", 14) > max_w:
                 c.drawString(x, y, line)
-                y -= 14
+                y -= 18
                 line = w
             else:
                 line = test
         if line:
             c.drawString(x, y, line)
-            y -= 14
-        y -= 4
+            y -= 18
+        y -= 6
 
     section("Players")
     body("Two players. One plays " + p1 + ", the other plays " + p2 + ".")
 
     section("Setup")
-    body("Use the board on the previous page. Decide who goes first (typically the " + p2.split()[0] + " player).")
+    if stone_mode:
+        body("Use the board on the previous page with your stone set. Each player has stones of their own color. Decide who goes first (typically the " + p2.split()[0] + " player).")
+    else:
+        body("Use the board on the previous page with pen and paper. Each player needs a pen or marker. Decide who goes first (typically the " + p2.split()[0] + " player).")
 
     section("Goal")
     body("Be the first to form a connected chain of your own stones linking your two assigned sides of the board.")
 
     section("How to play")
-    body("On your turn, place a stone of your color on any empty hex cell. Stones are never moved or removed.")
+    if stone_mode:
+        body("On your turn, place a stone of your color on any empty hex cell, centered within the hex. Stones are never moved or removed.")
+    else:
+        body("On your turn, mark any empty hex cell with your symbol (X, O, your initial, or a color). Marks are never erased or overwritten.")
 
     section("Win condition")
     body("Connect your two opposite sides with a chain of your stones. A draw is impossible \u2014 the Brouwer fixed-point theorem guarantees one player must win.")
@@ -607,10 +644,10 @@ def draw_rules_page(c, page_w, page_h, theme="classic", label_set="wb"):
     body("After the first player makes their opening move, the second player may choose to either keep their color or swap colors. This largely nullifies the first-move advantage.")
 
     section("Coordinate notation")
-    body("Columns are lettered a, b, c, ... from left to right. Rows are numbered 1, 2, 3, ... from bottom to top. A cell's address is column+row, e.g. \u201cf7\u201d refers to column f, row 7.")
+    body("Columns use standard Go notation: a\u2013h, then j\u2013z (the letter i is skipped, per Go convention). Rows are numbered 1\u2013N from bottom to top. A cell's address is column+row, e.g. \u201cf7\u201d refers to column f, row 7.")
 
     # Footer
-    c.setFont("Helvetica-Oblique", 8)
+    c.setFont("Helvetica-Oblique", 11)
     c.setFillColor(colors.HexColor(subtle_color))
     c.drawCentredString(page_w / 2, margin / 2,
         "Hex is a member of the connection game family. See en.wikipedia.org/wiki/Hex_(board_game) for the full rules.")
@@ -663,7 +700,7 @@ def _generate_multi(args, show_coords):
                 c.rect(0, 0, pw, ph, fill=True, stroke=False)
         print(f"Generated {len(sizes)}-page reference: sizes {sizes} on {args.paper}.")
         if args.rules:
-            draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set)
+            draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set, stone_mode=stone_mode)
             c.showPage()
             print("  + rules page")
 
@@ -680,7 +717,7 @@ def _generate_multi(args, show_coords):
                 c.rect(0, 0, pw, ph, fill=True, stroke=False)
         print(f"Generated {args.pad}-sheet pad of {args.size}x{args.size} boards on {args.paper}.")
         if args.rules:
-            draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set)
+            draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set, stone_mode=stone_mode)
             c.showPage()
             print("  + rules page")
 
@@ -711,7 +748,7 @@ def _generate_multi(args, show_coords):
         print(f"Generated 1-page {cols}x{rows} handout ({n} copies of {args.size}x{args.size}) on {args.paper}.")
 
     if args.rules:
-        draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set)
+        draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set, stone_mode=stone_mode)
         c.showPage()
         print("  + rules page")
 
@@ -750,6 +787,9 @@ if __name__ == "__main__":
                              "(per Hex board convention; corners belong to both adjacent sides)")
     parser.add_argument("--cell-coords", action="store_true",
                         help="Print coordinate label inside each hex cell (e.g. f7)")
+    parser.add_argument("--stone-mode", action="store_true",
+                        help="Tweak instructions for stone play (place stones in hex centers). "
+                             "Auto-enabled when --stone-size is given.")
     parser.add_argument("--n-up", type=int, default=1, metavar="N",
                         help="Pack N boards onto each page (e.g., 4 for a 2x2 grid handout).")
     parser.add_argument("--pad", type=int, default=None, metavar="N",
@@ -778,6 +818,9 @@ if __name__ == "__main__":
         sys.exit(1)
 
     margin_pt = args.margin if args.margin is not None else None
+
+    # --stone-mode auto-enables when a stone size was specified.
+    stone_mode = args.stone_mode or args.stone_size is not None
 
     # If --stone-size given and no explicit --paper, auto-pick.
     if args.paper is None:
@@ -829,7 +872,8 @@ if __name__ == "__main__":
             sys.exit(2)
         write_svg(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
                   mode=args.mode, pen_paper=args.pen_paper, coords=show_coords,
-                  theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots)
+                  theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots,
+                  stone_mode=stone_mode)
         print(f"Generated {args.size}x{args.size} SVG: {args.output}")
         sys.exit(0)
 
@@ -841,7 +885,7 @@ if __name__ == "__main__":
     r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
                       pen_paper=args.pen_paper, coords=show_coords, mode=args.mode,
                       theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots,
-                      rules=args.rules, cell_coords=args.cell_coords)
+                      rules=args.rules, cell_coords=args.cell_coords, stone_mode=stone_mode)
 
     # Diagnostics.
     flat_mm, _ = hex_fits_stone(r, args.stone_size or 0)
