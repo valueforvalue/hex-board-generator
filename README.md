@@ -50,12 +50,19 @@ Marks the four corner hexes with filled circles per Hex board convention. Corner
 ### Paper & pencil mode (`--pen-paper`)
 
 - Thicker hex strokes
-- Coordinate labels (a..k, 1..N) along edges
+- Go-style coordinate labels inside each cell (`a`–`h`, `j`–`z` columns; rows `1`–`N`)
 - Footer hint: notation, first player, win condition
+- With `--stone-size`, instructions adapt for stone play (place stones in hex centers)
 
-### Coordinate labels (`--coords` / `--no-coords`)
+### Coordinate labels (`--coords` / `--no-coords` / `--cell-coords`)
 
-Show or hide edge coordinate labels independently.
+- `--coords` / `--pen-paper` — show Go-style labels inside each cell (default for legible boards)
+- `--no-coords` — suppress all coordinate labels
+- `--cell-coords` — same as `--coords` (kept for clarity)
+
+### Stone play mode (`--stone-mode`)
+
+Auto-enabled when `--stone-size` is given. Tweaks the footer and rules page for stone play instead of pen-and-paper (e.g. "place stones in hex centers" rather than "mark with X/O").
 
 ### Fit modes (`--safemode` / `--makeitwork` / `--unsafe`)
 
@@ -135,7 +142,7 @@ python generate_board.py 11 --sizes 9,11,13
 |-----|-------|-------|
 | ![9x9](docs/gallery/07_sizes_p1.png) | ![11x11](docs/gallery/07_sizes_p2.png) | ![13x13](docs/gallery/07_sizes_p3.png) |
 
-### Stone play (auto-picks paper)
+### Stone play on ANSI-B (auto-picks paper)
 
 ```bash
 python generate_board.py 11 --stone-size 19
@@ -144,6 +151,16 @@ python generate_board.py 11 --stone-size 19
 Auto-selects ANSI-B (17×22) for 19mm stones with 63% comfortable fit.
 
 ![Stone play](docs/gallery/08_stone19.png)
+
+### Stone play on Tabloid (11×17, tight fit)
+
+```bash
+python generate_board.py 11 --stone-size 19 --paper tabloid --makeitwork --pen-paper --rules
+```
+
+Tabloid 11×17 fits an 11×11 board with 19mm stones at 77% ratio (tight, but playable). Instructions auto-switch to stone-mode language.
+
+![Stone play on tabloid](docs/gallery/10_tabloid_stone.png)
 
 ### Rules sheet (`--rules`)
 
@@ -165,9 +182,11 @@ python generate_board.py <size> [options]
   -p, --paper         letter, legal, tabloid, a3, a4, ansi-b (auto-detected with --stone-size)
   --stone-size MM     Stone diameter in mm; auto-picks paper if -p omitted
   --margin PTS        Override page margin in points (1 inch = 72 pt)
-  --pen-paper         Paper-and-pencil mode: thicker strokes, coords, footer
-  --coords            Show coordinate labels
+  --pen-paper         Paper-and-pencil mode: thicker strokes, Go-style coords inside cells, footer
+  --coords            Show coordinate labels (inside each cell when legible)
   --no-coords         Suppress coordinate labels
+  --cell-coords       Alias for --coords (inside each cell)
+  --stone-mode        Adapt instructions for stone play (auto-enabled by --stone-size)
   --theme NAME        classic, light, dark, wood
   --label-set NAME    wb (White/Black) or rb (Red/Blue)
   --corner-dots       Mark the four corner hexes
