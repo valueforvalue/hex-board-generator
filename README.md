@@ -10,13 +10,22 @@ Generate printable **Hex**, **Havannah**, and **Trike** board PDFs sized for Go 
 ## Quick start
 
 ```bash
-python generate_board.py 11                          # 11x11 Hex on Letter (default)
+python generate_board.py                                # size defaults per game (11, 10, 13, 5)
 python generate_board.py 11 --pen-paper              # paper & pencil mode
 python generate_board.py 11 --stone-size 19          # auto-pick paper for 19mm stones
-python generate_board.py 8 --game havannah           # base-8 Havannah
+python generate_board.py --game havannah              # base-10 Havannah (default)
+python generate_board.py --game havannah --size 8     # base-8 Havannah override
 python generate_board.py 10 --game havannah --rules  # base-10 with rules page
+python generate_board.py --game yavalath --rules      # hexhex-5 Yavalath (default)
+python generate_board.py 9 --variant rex --rules     # hexhex-9 Rex (misere Hex)
 python generate_board.py 7 --game trike              # side-7 Trike
 python generate_board.py 13 --game trike --rules     # side-13 Trike with rules
+
+Default sizes (most-played standard):
+- `--game hex` / `--variant rex`: 11
+- `--game yavalath`: 5
+- `--game havannah`: 10
+- `--game trike`: 13
 ```
 
 ## Board sizing notes
@@ -122,6 +131,64 @@ python generate_board.py 8 --game havannah --format svg           # vector SVG
 - `--cell-coords` renders the axial `(q, r)` label inside each cell when cells are large enough.
 - `--no-coords` suppresses all coordinate labels.
 - All other flags (`--theme`, `--paper`, `--stone-size`, `--pen-paper`, `--n-up`, `--pad`, `--sizes`, `--format`, `--rules`) work identically.
+
+## Hex variants
+
+Hex variants reuse the same hexhex-N rhombus geometry (and every flag above:
+theme, paper, stone-size, n-up, pad, sizes, format, rules). Pick a variant with
+`--variant <name>`, or use the convenience aliases `--game yavalath` and
+`--game rex`, which are equivalent to `--game hex --variant yavalath` /
+`--variant rex`.
+
+### Yavalath (`--variant yavalath`, designer Cameron Browne, 2007)
+
+| Base (N) | Total cells | Standard for |
+|----------|-------------|--------------|
+| 5        | 61          | Official nestorgames board, beginners |
+| 6        | 91          | Intermediate |
+
+- No perimeter bands. Stones sit on cells only.
+- On your turn, place a stone of your color on any empty hex.
+- **Win**: complete a line of **4** or more of your stones in any direction.
+- **Lose**: complete a line of **exactly 3** of your stones (unless that line
+  also forms part of a 4+ line; then the win still holds).
+- The optional swap rule (White plays first; Black may take White's opening
+  stone on Black's first turn) balances the first-move advantage and is
+  described on the rules page. Pentalath and a three-player variant are also
+  noted there for the same hex set.
+
+```bash
+python generate_board.py 5 --variant yavalath --rules                # hexhex-5 + rules page
+python generate_board.py 5 --variant yavalath --pen-paper           # paper & pencil mode
+python generate_board.py 5 --variant yavalath --n-up 4              # 4-up handout
+python generate_board.py 6 --variant yavalath --sizes 4,5,6         # size reference
+python generate_board.py 5 --variant yavalath --theme dark          # dark theme
+python generate_board.py 5 --variant yavalath --format svg          # vector SVG
+python generate_board.py 5 --game yavalath --rules                  # same board, alias
+```
+
+Variant-only flag notes:
+
+- `--label-set` and `--corner-dots` are ignored (no side bands or marked corners). A warning is printed if either is set.
+
+### Rex (`--variant rex`, misere Hex)
+
+Same board as Hex, same bands, same coordinate labels. The variant flips the win
+condition: the player who connects their two assigned sides LOSES. Win by
+forcing the opponent to connect first. A draw is still impossible (Brouwer
+fixed-point theorem); the loser is simply the player who moves into a winning
+connection.
+
+```bash
+python generate_board.py 11 --variant rex --rules       # 11x11 Rex + rules page
+python generate_board.py 9  --variant rex --pen-paper   # 9x9 paper & pencil
+python generate_board.py 9  --game rex --rules          # alias works identically
+```
+
+Standard Hex flags (`--label-set`, `--corner-dots`, `--theme`, `--paper`,
+`--stone-size`, `--pen-paper`, `--n-up`, `--pad`, `--sizes`, `--format`,
+`--rules`) all behave exactly as for Hex. The footer and the rules page text
+describe the misere win condition.
 
 ## Trike
 
@@ -252,8 +319,9 @@ Appends a one-page Hex rules summary at the end of the PDF.
 ```
 python generate_board.py <size> [options]
 
-  size                Board size (e.g. 11 for 11x11 Hex, 10 for base-10 Havannah, 13 for side-13 Trike)
-  --game NAME         hex (default), havannah, or trike
+  size                Board size (e.g. 11 for 11x11 Hex). Optional; defaults to the most-played standard size for the selected --game/--variant (hex 11, rex 11, yavalath 5, havannah 10, trike 13).
+  --game NAME         hex (default), havannah, trike, rex, or yavalath
+                       (rex and yavalath are aliases for --game hex --variant <name>)
   -o, --output        Output PDF path (default: hex_board.pdf)
   -p, --paper         letter, legal, tabloid, a3, a4, ansi-b (auto-detected with --stone-size)
   --stone-size MM     Stone diameter in mm; auto-picks paper if -p omitted
@@ -265,11 +333,12 @@ python generate_board.py <size> [options]
   --stone-mode        Adapt instructions for stone play (auto-enabled by --stone-size)
   --theme NAME        classic, light, dark, wood
   --label-set NAME    wb (White/Black) or rb (Red/Blue) — Hex only; ignored for Havannah/Trike
-  --corner-dots       Mark corner hexes (Hex opt-in, Havannah opt-in, ignored for Trike)
+  --corner-dots       Mark corner hexes (Hex opt-in, Havannah opt-in, ignored for Trike/Yavalath)
+  --variant NAME      rex (misère Hex) or yavalath; only valid with --game hex
   --n-up N            Pack N boards per page
   --pad N             Generate N copies (one per page)
   --sizes LIST        Comma-separated sizes, one page each
-  --rules             Append a rules summary page (game-aware: Hex / Havannah / Trike)
+  --rules             Append a rules summary page (game/variant-aware: Hex, Havannah, Trike, Rex, Yavalath)
   --format FMT        pdf (default) or svg
   --safemode          Default. Stone ≤ 70% hex flat-to-flat.
   --makeitwork        Stone ≤ 85%. Shrinks margin to 4pt.
@@ -292,6 +361,33 @@ one of three structures: a **ring** (closed loop), a **bridge** (connect two
 corner cells), or a **fork** (connect three edges). The pie rule is used to
 balance the first-move advantage. See
 [Wikipedia](https://en.wikipedia.org/wiki/Havannah_(board_game)) for the full rules.
+
+## About Rex
+
+Rex is the misère variant of Hex, played on the same hexhex-N rhombus with the
+same perimeter bands. The win condition is flipped: the player who connects
+their two assigned sides LOSES, and the other player wins. Both players are
+therefore trying to *avoid* completing a chain while maneuvering the opponent
+into having to. A draw is still impossible by the same Brouwer fixed-point
+argument that guarantees a Hex winner exists; the loser is simply the player
+who first moves into a winning connection. Optionally use the same swap rule
+as Hex to balance the first-move advantage. See the Hex article on
+[Wikipedia](https://en.wikipedia.org/wiki/Hex_(board_game)) under "Misere Hex"
+for background.
+
+## About Yavalath
+
+Yavalath is a 2007 abstract designed by Cameron Browne's Ludi program (the
+same system that later discovered Y and Pentalath). It is published as a
+hexhex-5 set (61 cells) by Nestorgames. Players alternately place one of
+their colored stones on any empty cell. The first to complete a line of four
+or more stones in any direction wins; however, completing a line of exactly
+three loses immediately, unless that line is also part of a longer winning
+line. The same set plays Pentalath (5-in-a-row with Go-style enemy captures)
+and a three-player elimination variant. An optional swap rule balances the
+opening. See
+[Yavalath rulebook (PDF)](https://nestorgames.com/rulebooks/YAVALATH_EN.pdf)
+for the canonical rules.
 
 ## About Trike
 

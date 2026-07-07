@@ -99,6 +99,47 @@ LABEL_SETS = {
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Hex variants (sub-games sharing the hexhex-N rhombus geometry)
+#
+#   None     — standard Hex, perimeter bands, connect opposite sides to win.
+#   "rex"    — misère Hex. Same bands, same connections, but: the player who
+#              connects their sides LOSES. Goal: force opponent to connect.
+#   "yavalath" — Yavalath by Cameron Browne (2007). No perimeter bands (stones
+#              only on cells, no edges to connect). Place a stone per turn,
+#              win by making a line of 4 in a row, lose by making a line of
+#              exactly 3 in a row (without also making a line of 4).
+# ──────────────────────────────────────────────────────────────────────────────
+HEX_VARIANTS = (None, "rex", "yavalath")
+HEX_VARIANT_TITLES = {
+    None:      None,                # use the default HEX BOARD title
+    "rex":     "REX BOARD",         # misère Hex
+    "yavalath": "YAVALATH BOARD",
+}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Default board sizes per game/variant.
+#
+#   hex        — 11×11 (Piet Hein 1942 / Parker Brothers classic; the standard
+#                hex size in serious play)
+#   rex        — same as hex (also plays on 11×11); larger sizes are playable
+#                but go much longer for misère swings
+#   yavalath   — hexhex-5 (Nestorgames published size; 61 cells, the canonical
+#                set that also plays Pentalath and the 3-player variant)
+#   havannah   — base-10 (Computer Olympiad standard; 271 cells, common in
+#                competitive play)
+#   trike      — side-13 (standard competitive play; Alek Erickson 2020 design)
+# ──────────────────────────────────────────────────────────────────────────────
+DEFAULT_SIZES = {
+    "hex":       11,
+    "rex":       11,
+    "yavalath":  5,
+    "havannah":  10,
+    "trike":     13,
+}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Shared hex geometry (pointy-top hexes)
 #
 # Pointy-top hex centered at origin with circumradius r has vertices at angles
@@ -318,13 +359,17 @@ def hex_fits_stone(r_pt, stone_diameter_mm):
 
 def draw_board_into_region(c, board_size, region, margin_pt,
                            pen_paper, coords, theme, label_set, corner_dots,
-                           draw_title=True, cell_coords=False):
+                           draw_title=True, cell_coords=False, variant=None):
     """Draw one hex board into a rectangular region of an existing canvas.
 
     `region` = (x, y, w, h): bottom-left corner plus size of the region.
     The board fills the region (with its own internal margin_pt).
     Returns the r used (in points).
+
+    `variant`: None (standard Hex), "rex" (misere Hex), or "yavalath"
+    (no perimeter bands; 4-in-a-row wins, 3-in-a-row loses).
     """
+    assert variant in HEX_VARIANTS, f"unknown hex variant {variant!r}"
     rx, ry, rw, rh = region
     # Per-region page bg fill (for theme).
     theme_def = THEMES[theme]
@@ -351,9 +396,18 @@ def draw_board_into_region(c, board_size, region, margin_pt,
     label_a, label_b = LABEL_SETS[label_set]
 
     if draw_title:
-        title = (f"HEX BOARD \u2014 PAPER & PENCIL ({board_size} \u00d7 {board_size})"
-                 if pen_paper else
-                 f"HEX BOARD ({board_size} \u00d7 {board_size})")
+        title_override = HEX_VARIANT_TITLES.get(variant)
+        if title_override is not None:
+            size_label = (f"hexhex-{board_size}"
+                          if variant in ("yavalath", "rex")
+                          else f"{board_size} \u00d7 {board_size}")
+            title = (f"{title_override} \u2014 PAPER & PENCIL ({size_label})"
+                     if pen_paper else
+                     f"{title_override} ({size_label})")
+        else:
+            title = (f"HEX BOARD \u2014 PAPER & PENCIL ({board_size} \u00d7 {board_size})"
+                     if pen_paper else
+                     f"HEX BOARD ({board_size} \u00d7 {board_size})")
         title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
         c.setFont("Helvetica-Bold", 12)  # smaller for sub-boards
         c.setFillColor(colors.HexColor(title_color))
@@ -388,11 +442,24 @@ def draw_board_into_region(c, board_size, region, margin_pt,
             ccy = r * 1.5 * cr + offset_y
             c.circle(ccx, ccy, r * 0.18, fill=True, stroke=False)
 
-    c.setLineCap(1)
-    c.setLineWidth(3)
     white_color = colors.HexColor(theme_def["white"])
     black_color = colors.HexColor(theme_def["black"])
 
+    # Perimeter bands + side labels are only meaningful for connection games
+    # that win by linking sides. Yavalath places stones on cells only; no
+    # bands or "White Side"/"Black Side" labels needed.
+    if variant == "yavalath":
+        # Draw a Yavalath footer hint inside the board region if --pen-paper.
+        if pen_paper and draw_title:
+            hint_color = "#888888" if theme != "dark" else "#BBBBBB"
+            c.setFont("Helvetica-Oblique", 8)
+            c.setFillColor(colors.HexColor(hint_color))
+            c.drawCentredString(center_x, ry + 8,
+                "Yavalath: 4 in a row wins  \u2022  3 in a row loses")
+        return r
+
+    c.setLineCap(1)
+    c.setLineWidth(3)
     c.setStrokeColor(white_color)
     path = c.beginPath()
     pts = get_hex_points(r * SQRT3 * 0 + offset_x, r * 1.5 * 0 + offset_y, r)
@@ -497,7 +564,7 @@ def hex_to_svg(cx, cy, radius):
 
 def write_svg(output_filename, board_size, paper="letter", margin_pt=None, mode="safe",
               pen_paper=False, coords=True, theme="classic", label_set="wb",
-              corner_dots=False, rules=False):
+              corner_dots=False, rules=False, variant=None):
     """Render the board as SVG (vector, web-friendly). Single page only."""
     page_w, page_h = pick_page_size(paper, board_size)
     if margin_pt is None:
@@ -532,8 +599,17 @@ def write_svg(output_filename, board_size, paper="letter", margin_pt=None, mode=
            f'<rect width="{page_w:.0f}" height="{page_h:.0f}" fill="{bg}"/>']
 
     # Title
-    title = (f"HEX BOARD \u2014 PAPER & PENCIL ({board_size} \u00d7 {board_size})"
-             if pen_paper else f"HEX BOARD ({board_size} \u00d7 {board_size})")
+    title_override = HEX_VARIANT_TITLES.get(variant)
+    if title_override is not None:
+        size_label = (f"hexhex-{board_size}"
+                      if variant in ("yavalath", "rex")
+                      else f"{board_size} \u00d7 {board_size}")
+        title = (f"{title_override} \u2014 PAPER & PENCIL ({size_label})"
+                 if pen_paper else
+                 f"{title_override} ({size_label})")
+    else:
+        title = (f"HEX BOARD \u2014 PAPER & PENCIL ({board_size} \u00d7 {board_size})"
+                 if pen_paper else f"HEX BOARD ({board_size} \u00d7 {board_size})")
     title_y = page_h - max(14, margin_pt / 2)
     out.append(
         f'<text x="{center_x:.2f}" y="{title_y:.2f}" font-family="Helvetica,Arial,sans-serif" '
@@ -573,32 +649,33 @@ def write_svg(output_filename, board_size, paper="letter", margin_pt=None, mode=
         return (cx + r * math.cos(angle), cy + r * math.sin(angle))
 
     # White band: row 0 (v0-v1) and row N-1 (v3-v4).
-    for col in range(board_size):
-        out.append(line(vert(0, col, 0), vert(0, col, 1), theme_def["white"]))
-    for col in range(board_size):
-        out.append(line(vert(board_size - 1, col, 3), vert(board_size - 1, col, 4), theme_def["white"]))
-    # Black band: col 0 (v2-v3 then v3-v4) and col N-1 (v5-v0 then v0-v1).
-    for row in range(board_size):
-        out.append(line(vert(row, 0, 1), vert(row, 0, 2), theme_def["black"]))
-    for row in range(board_size):
-        out.append(line(vert(row, board_size - 1, 4), vert(row, board_size - 1, 5), theme_def["black"]))
+    if variant != "yavalath":
+        for col in range(board_size):
+            out.append(line(vert(0, col, 0), vert(0, col, 1), theme_def["white"]))
+        for col in range(board_size):
+            out.append(line(vert(board_size - 1, col, 3), vert(board_size - 1, col, 4), theme_def["white"]))
+        # Black band: col 0 (v2-v3 then v3-v4) and col N-1 (v5-v0 then v0-v1).
+        for row in range(board_size):
+            out.append(line(vert(row, 0, 1), vert(row, 0, 2), theme_def["black"]))
+        for row in range(board_size):
+            out.append(line(vert(row, board_size - 1, 4), vert(row, board_size - 1, 5), theme_def["black"]))
 
-    # Side labels
-    mid = board_size // 2
-    lbl_dist = r * 1.4 if not pen_paper else r * 2.2
-    def lbl(text, col, row, color, dx, dy, angle):
-        cx = r * SQRT3 * (col + 0.5 * row) + offset_x
-        cy = r * 1.5 * row + offset_y
-        out.append(
-            f'<text x="{cx + dx:.2f}" y="{cy + dy:.2f}" font-family="Helvetica,Arial,sans-serif" '
-            f'font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" '
-            f'transform="rotate({angle} {cx + dx:.2f} {cy + dy:.2f})">{text}</text>'
-        )
+        # Side labels
+        mid = board_size // 2
+        lbl_dist = r * 1.4 if not pen_paper else r * 2.2
+        def lbl(text, col, row, color, dx, dy, angle):
+            cx = r * SQRT3 * (col + 0.5 * row) + offset_x
+            cy = r * 1.5 * row + offset_y
+            out.append(
+                f'<text x="{cx + dx:.2f}" y="{cy + dy:.2f}" font-family="Helvetica,Arial,sans-serif" '
+                f'font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" '
+                f'transform="rotate({angle} {cx + dx:.2f} {cy + dy:.2f})">{text}</text>'
+            )
 
-    lbl(label_a.upper(), mid, 0, theme_def["white"], 0, -lbl_dist, 0)
-    lbl(label_a.upper(), mid, board_size - 1, theme_def["white"], 0, lbl_dist, 0)
-    lbl(label_b.upper(), 0, mid, theme_def["black"], -lbl_dist * 0.866, lbl_dist * 0.5, 60)
-    lbl(label_b.upper(), board_size - 1, mid, theme_def["black"], lbl_dist * 0.866, -lbl_dist * 0.5, -60)
+        lbl(label_a.upper(), mid, 0, theme_def["white"], 0, -lbl_dist, 0)
+        lbl(label_a.upper(), mid, board_size - 1, theme_def["white"], 0, lbl_dist, 0)
+        lbl(label_b.upper(), 0, mid, theme_def["black"], -lbl_dist * 0.866, lbl_dist * 0.5, 60)
+        lbl(label_b.upper(), board_size - 1, mid, theme_def["black"], lbl_dist * 0.866, -lbl_dist * 0.5, -60)
 
     # Edge coords: only when hexes are too small for legible inside-cell labels.
     if (coords or pen_paper) and r < 11:
@@ -639,8 +716,15 @@ def write_svg(output_filename, board_size, paper="letter", margin_pt=None, mode=
             hint = "Place stones in hex centers. \u2022 Notation: &lt;col&gt;&lt;row&gt; e.g. f7."
         else:
             hint = "Mark cells with X / O / your initial. \u2022 Notation: &lt;col&gt;&lt;row&gt; e.g. f7."
-        footer = (f"{hint}  \u2022  {first_player} moves first.  "
-                  f"\u2022  Connect your two sides to win.")
+        if variant == "yavalath":
+            footer = (f"{hint}  \u2022  {first_player} moves first.  "
+                      f"\u2022  4 in a row wins, 3 in a row loses.")
+        elif variant == "rex":
+            footer = (f"{hint}  \u2022  {first_player} moves first.  "
+                      f"\u2022  Rex (mis\u00e8re): connecting your two sides LOSES.")
+        else:
+            footer = (f"{hint}  \u2022  {first_player} moves first.  "
+                      f"\u2022  Connect your two sides to win.")
         out.append(
             f'<text x="{center_x:.2f}" y="{max(14, margin_pt / 2):.2f}" font-family="Helvetica,Arial,sans-serif" '
             f'font-size="8" font-style="italic" fill="{subtle}" text-anchor="middle">{footer}</text>'
@@ -654,7 +738,8 @@ def write_svg(output_filename, board_size, paper="letter", margin_pt=None, mode=
 def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
                    pen_paper=False, coords=True, mode="safe",
                    theme="classic", label_set="wb", corner_dots=False, rules=False,
-                   cell_coords=False, stone_mode=False):
+                   cell_coords=False, stone_mode=False, variant=None):
+    assert variant in HEX_VARIANTS, f"unknown hex variant {variant!r}"
     page_w, page_h = pick_page_size(paper, board_size)
     if margin_pt is None:
         if mode in ("makeitwork", "unsafe"):
@@ -671,9 +756,18 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
         c.setFillColor(colors.HexColor(theme_def["page_bg"]))
         c.rect(0, 0, page_w, page_h, fill=True, stroke=False)
 
-    title = (f"HEX BOARD \u2014 PAPER & PENCIL ({board_size} \u00d7 {board_size})"
-             if pen_paper else
-             f"HEX BOARD ({board_size} \u00d7 {board_size})")
+    title_override = HEX_VARIANT_TITLES.get(variant)
+    if title_override is not None:
+        size_label = (f"hexhex-{board_size}"
+                      if variant in ("yavalath", "rex")
+                      else f"{board_size} \u00d7 {board_size}")
+        title = (f"{title_override} \u2014 PAPER & PENCIL ({size_label})"
+                 if pen_paper else
+                 f"{title_override} ({size_label})")
+    else:
+        title = (f"HEX BOARD \u2014 PAPER & PENCIL ({board_size} \u00d7 {board_size})"
+                 if pen_paper else
+                 f"HEX BOARD ({board_size} \u00d7 {board_size})")
     c.setTitle(title)
     title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
     c.setFont("Helvetica-Bold", 16)
@@ -684,7 +778,7 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
     draw_board_into_region(
         c, board_size, (0, 0, page_w, page_h), margin_pt,
         pen_paper, coords, theme, label_set, corner_dots,
-        draw_title=False, cell_coords=cell_coords,
+        draw_title=False, cell_coords=cell_coords, variant=variant,
     )
 
     if pen_paper:
@@ -696,12 +790,22 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
             hint = "Place stones in hex centers. \u2022 Notation: <col><row> e.g. f7."
         else:
             hint = f"Mark cells with X / O / your initial. \u2022 Notation: <col><row> e.g. f7."
-        c.drawCentredString(page_w / 2, max(14, margin_pt / 2),
-            f"{hint}  \u2022  {first_player} moves first.  \u2022  Connect your two sides to win.")
+        if variant == "yavalath":
+            footer = (f"{hint}  \u2022  {first_player} moves first.  "
+                      f"\u2022  4 in a row wins, 3 in a row loses.")
+        elif variant == "rex":
+            footer = (f"{hint}  \u2022  {first_player} moves first.  "
+                      f"\u2022  Rex (mis\u00e8re): connecting your two sides LOSES; "
+                      f"force the opponent to connect.")
+        else:
+            footer = (f"{hint}  \u2022  {first_player} moves first.  "
+                      f"\u2022  Connect your two sides to win.")
+        c.drawCentredString(page_w / 2, max(14, margin_pt / 2), footer)
 
     if rules:
         c.showPage()
-        draw_rules_page(c, page_w, page_h, theme=theme, label_set=label_set, stone_mode=stone_mode)
+        draw_rules_page(c, page_w, page_h, theme=theme, label_set=label_set,
+                        stone_mode=stone_mode, variant=variant)
         c.showPage()
     else:
         c.showPage()
@@ -710,7 +814,24 @@ def draw_hex_board(output_filename, board_size, paper="letter", margin_pt=None,
     return r
 
 
-def draw_rules_page(c, page_w, page_h, theme="classic", label_set="wb", stone_mode=False):
+def draw_rules_page(c, page_w, page_h, theme="classic", label_set="wb",
+                    stone_mode=False, variant=None):
+    """Draw a one-page rules summary as the final page of the PDF.
+
+    `variant`: None = standard Hex, "rex" = misère Hex, "yavalath" = Yavalath.
+    """
+    if variant == "yavalath":
+        return _draw_yavalath_rules_page(c, page_w, page_h, theme=theme,
+                                         stone_mode=stone_mode)
+    if variant == "rex":
+        return _draw_rex_rules_page(c, page_w, page_h, theme=theme,
+                                    stone_mode=stone_mode)
+    return _draw_hex_rules_page(c, page_w, page_h, theme=theme,
+                                label_set=label_set, stone_mode=stone_mode)
+
+
+def _draw_hex_rules_page(c, page_w, page_h, theme="classic",
+                         label_set="wb", stone_mode=False):
     """Draw a one-page Hex rules summary as the final page of the PDF."""
     theme_def = THEMES[theme]
     if theme_def["page_bg"]:
@@ -796,6 +917,180 @@ def draw_rules_page(c, page_w, page_h, theme="classic", label_set="wb", stone_mo
     c.setFillColor(colors.HexColor(subtle_color))
     c.drawCentredString(page_w / 2, margin / 2,
         "Hex is a member of the connection game family. See en.wikipedia.org/wiki/Hex_(board_game) for the full rules.")
+
+
+def _draw_rex_rules_page(c, page_w, page_h, theme="classic", stone_mode=False):
+    """One-page rules summary for Rex, the misère variant of Hex."""
+    theme_def = THEMES[theme]
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(0, 0, page_w, page_h, fill=True, stroke=False)
+
+    text_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+    subtle_color = "#888888" if theme != "dark" else "#BBBBBB"
+    accent = theme_def["black"]
+    p1, p2 = LABEL_SETS["wb"]
+
+    margin = 54
+    x = margin
+    y = page_h - margin
+    max_w = page_w - 2 * margin
+
+    c.setFont("Helvetica-Bold", 30)
+    c.setFillColor(colors.HexColor(text_color))
+    c.drawString(x, y, "How to Play Rex")
+    y -= 36
+
+    c.setFont("Helvetica-Oblique", 13)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawString(x, y, "Mis\u00e8re Hex \u2022 algebraic variant of the classic connection game")
+    y -= 36
+
+    def section(title_text):
+        nonlocal y
+        c.setFont("Helvetica-Bold", 18)
+        c.setFillColor(colors.HexColor(accent))
+        c.drawString(x, y, title_text)
+        y -= 24
+
+    def body(text):
+        nonlocal y
+        c.setFont("Helvetica", 14)
+        c.setFillColor(colors.HexColor(text_color))
+        words = text.split()
+        line = ""
+        for w in words:
+            test = (line + " " + w).strip()
+            if c.stringWidth(test, "Helvetica", 14) > max_w:
+                c.drawString(x, y, line)
+                y -= 18
+                line = w
+            else:
+                line = test
+        if line:
+            c.drawString(x, y, line)
+            y -= 18
+        y -= 6
+
+    section("Players")
+    body("Two players. One plays " + p1 + ", the other plays " + p2 + ".")
+
+    section("Setup")
+    if stone_mode:
+        body("Use the board on the previous page with two colors of stones. Decide who goes first.")
+    else:
+        body("Use the board on the previous page with pen and paper. Two symbols or colors. Decide who goes first.")
+
+    section("Goal")
+    body("Rex is the misère variant of Hex: the player who connects their two sides LOSES. Win by forcing your opponent to be the first to complete a chain.")
+
+    section("How to play")
+    if stone_mode:
+        body("On your turn, place a stone of your color on any empty hex cell, centered within the hex. Stones are never moved or removed.")
+    else:
+        body("On your turn, mark any empty hex cell with your symbol. Marks are never erased or overwritten.")
+
+    section("Win condition")
+    body("You win when your opponent completes a connected chain linking their two assigned sides. A draw is impossible \u2014 the Brouwer fixed-point theorem still guarantees one player must connect first.")
+
+    section("Strategy hint")
+    body("Rex slows the game down \u2014 both players are trying not to win. Look for 'forced' threats that compress your opponent's options until they have no choice but to complete their own chain.")
+
+    section("Coordinate notation")
+    body("Columns use standard Go notation: a\u2013h, then j\u2013z (the letter i is skipped, per Go convention). Rows are numbered 1\u2013N from bottom to top. A cell's address is column+row, e.g. \u201cf7\u201d refers to column f, row 7.")
+
+    c.setFont("Helvetica-Oblique", 11)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawCentredString(page_w / 2, margin / 2,
+        "Rex is a member of the Hex family of connection games.")
+
+
+def _draw_yavalath_rules_page(c, page_w, page_h, theme="classic", stone_mode=False):
+    """One-page rules summary for Yavalath (Cameron Browne, 2007)."""
+    theme_def = THEMES[theme]
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(0, 0, page_w, page_h, fill=True, stroke=False)
+
+    text_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+    subtle_color = "#888888" if theme != "dark" else "#BBBBBB"
+    accent = theme_def["black"]
+
+    margin = 54
+    x = margin
+    y = page_h - margin
+    max_w = page_w - 2 * margin
+
+    c.setFont("Helvetica-Bold", 30)
+    c.setFillColor(colors.HexColor(text_color))
+    c.drawString(x, y, "How to Play Yavalath")
+    y -= 36
+
+    c.setFont("Helvetica-Oblique", 13)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawString(x, y, "Designed by Cameron Browne's Ludi program \u2022 Nestorgames, 2007")
+    y -= 36
+
+    def section(title_text):
+        nonlocal y
+        c.setFont("Helvetica-Bold", 18)
+        c.setFillColor(colors.HexColor(accent))
+        c.drawString(x, y, title_text)
+        y -= 24
+
+    def body(text):
+        nonlocal y
+        c.setFont("Helvetica", 14)
+        c.setFillColor(colors.HexColor(text_color))
+        words = text.split()
+        line = ""
+        for w in words:
+            test = (line + " " + w).strip()
+            if c.stringWidth(test, "Helvetica", 14) > max_w:
+                c.drawString(x, y, line)
+                y -= 18
+                line = w
+            else:
+                line = test
+        if line:
+            c.drawString(x, y, line)
+            y -= 18
+        y -= 6
+
+    section("Players")
+    body("Two players. Each has stones of their own color (White and Black).")
+
+    section("Setup")
+    if stone_mode:
+        body("Use the hexhex-N board on the previous page. Each player needs 30 stones of their color (about 60% of the board fill the rest). The board has no side bands \u2014 cells only.")
+    else:
+        body("Use the hexhex-N board on the previous page. Each player needs 30 stones of their color or markers in two symbols. The board has no side bands \u2014 cells only.")
+
+    section("Goal")
+    body("Be the first to place 4 of your stones in an unbroken straight line in any direction. BUT if you ever place 3 in a row (and only 3, not 4), you LOSE.")
+
+    section("How to play")
+    body("On your turn, place a stone on any empty hex cell. Stones are never moved or removed. Lines of 4 or more win immediately; a line of exactly 3 loses immediately (unless it is also part of a line of 4 or more, in which case the 4 wins).")
+
+    section("The 3-or-4 rule")
+    body("This is the twist that defines Yavalath: making a line of exactly three stones loses the game. So you may not 'play around' an opponent's setup with three-of-a-kind threats \u2014 the threat backfires.")
+
+    section("Setup (optional swap rule)")
+    body("White plays first. On White's second turn, Black may take White's opening stone and switch colors. This prevents a single overpowering opening move and balances the first-player advantage.")
+
+    section("Three-player variant")
+    body("Add a third color (red stones). Players must block the next player's winning line if they can. Any player who forms a line of three (without also forming a line of four) is eliminated (their stones stay on the board). Last surviving player \u2014 or first player to make 4 in a row \u2014 wins.")
+
+    section("Pentalath (bonus game)")
+    body("The same set plays Pentalath: aim for 5 in a row. After each turn, any enemy group with no liberties (no empty neighbor cells) is captured and removed, Go-style. The first player to capture an enemy stone also wins immediately.")
+
+    section("Coordinate notation")
+    body("Columns use standard Go notation: a\u2013h, then j\u2013z (the letter i is skipped, per Go convention). Rows are numbered 1\u2013N from bottom to top. A cell's address is column+row, e.g. \u201cf7\u201d refers to column f, row 7.")
+
+    c.setFont("Helvetica-Oblique", 11)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawCentredString(page_w / 2, margin / 2,
+        "Yavalath rules by Cameron Browne \u2022 nestorgames.com rulebook PDF")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1467,7 +1762,7 @@ def _generate_multi(args, show_coords):
         return draw_board_into_region(
             c, size, region, margin_pt,
             args.pen_paper, show_coords, args.theme, args.label_set, args.corner_dots,
-            draw_title=draw_title, cell_coords=cell_coords,
+            draw_title=draw_title, cell_coords=cell_coords, variant=args.variant,
         )
 
     def draw_rules(c, pw, ph):
@@ -1478,7 +1773,8 @@ def _generate_multi(args, show_coords):
             return draw_trike_rules_page(c, pw, ph, theme=args.theme,
                                          stone_mode=args.stone_mode or args.stone_size is not None)
         return draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set,
-                               stone_mode=args.stone_mode or args.stone_size is not None)
+                               stone_mode=args.stone_mode or args.stone_size is not None,
+                               variant=args.variant)
 
     if args.sizes:
         sizes = [int(s.strip()) for s in args.sizes.split(",") if s.strip()]
@@ -1489,16 +1785,28 @@ def _generate_multi(args, show_coords):
         title_color = "#FFFFFF" if args.theme == "dark" else "#1A1A1A"
         c.setFont("Helvetica-Bold", 16)
         c.setFillColor(colors.HexColor(title_color))
-        title = ("HAVANNAH REFERENCE  " if is_havannah
-           else "TRIKE REFERENCE  " if is_trike
-           else "HEX BOARD REFERENCE  ") + "  \u2022  ".join(
-            (f"base-{s}" if is_havannah
-             else f"side-{s}" if is_trike
-             else f"{s}x{s}") for s in sizes
-        )
-        c.setTitle("Havannah Reference" if is_havannah
-                   else "Trike Reference" if is_trike
-                   else "Hex Board Reference")
+        if is_havannah:
+            ref_label = "HAVANNAH REFERENCE  "
+            sz_label = lambda s: f"base-{s}"
+            doc_title = "Havannah Reference"
+        elif is_trike:
+            ref_label = "TRIKE REFERENCE  "
+            sz_label = lambda s: f"side-{s}"
+            doc_title = "Trike Reference"
+        elif args.variant == "yavalath":
+            ref_label = "YAVALATH REFERENCE  "
+            sz_label = lambda s: f"hexhex-{s}"
+            doc_title = "Yavalath Reference"
+        elif args.variant == "rex":
+            ref_label = "REX REFERENCE  "
+            sz_label = lambda s: f"hexhex-{s}"
+            doc_title = "Rex Reference"
+        else:
+            ref_label = "HEX BOARD REFERENCE  "
+            sz_label = lambda s: f"{s}x{s}"
+            doc_title = "Hex Board Reference"
+        title = ref_label + "  \u2022  ".join(sz_label(s) for s in sizes)
+        c.setTitle(doc_title)
         c.drawCentredString(pw / 2, ph - max(14, margin_pt / 2), title)
         for sz in sizes:
             draw_board_into((0, 0, pw, ph), sz, draw_title=True, cell_coords=args.cell_coords)
@@ -1525,6 +1833,10 @@ def _generate_multi(args, show_coords):
             print(f"Generated {args.pad}-sheet pad of base-{args.size} Havannah boards on {args.paper}.")
         elif is_trike:
             print(f"Generated {args.pad}-sheet pad of side-{args.size} Trike boards on {args.paper}.")
+        elif args.variant == "yavalath":
+            print(f"Generated {args.pad}-sheet pad of hexhex-{args.size} Yavalath boards on {args.paper}.")
+        elif args.variant == "rex":
+            print(f"Generated {args.pad}-sheet pad of hexhex-{args.size} Rex boards on {args.paper}.")
         else:
             print(f"Generated {args.pad}-sheet pad of {args.size}x{args.size} boards on {args.paper}.")
         if args.rules:
@@ -1577,11 +1889,24 @@ def _generate_multi(args, show_coords):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a printable Hex/Havannah board PDF.")
-    parser.add_argument("size", type=int, help="Board size (e.g., 11 for 11x11 Hex, or 10 for base-10 Havannah)")
-    parser.add_argument("--game", type=str, default="hex", choices=["hex", "havannah", "trike"],
+    parser.add_argument("size", type=int, nargs="?", default=None,
+                        help="Board size (e.g., 11 for 11x11 Hex, or 10 for base-10 Havannah). "
+                             "Defaults to the most-played standard size for the selected "
+                             "--game/--variant: hex 11, rex 11, yavalath 5, havannah 10, trike 13.")
+    parser.add_argument("--game", type=str, default="hex",
+                        choices=["hex", "havannah", "trike", "rex", "yavalath"],
                         help="Which board game to render. hex (default) renders an N×N rhombus; "
                              "havannah renders a base-N regular hexagon; trike renders a "
-                             "side-N triangular board. Size units differ per game — see README.")
+                             "side-N triangular board. rex and yavalath are aliases for "
+                             "--variant rex / --variant yavalath. Size units differ per game — "
+                             "see README.")
+    parser.add_argument("--variant", type=str, default=None,
+                        choices=[v for v in HEX_VARIANTS if v is not None],
+                        help="Hex sub-variant: 'rex' for misère Hex (connecting your sides "
+                             "loses), or 'yavalath' for the 4-in-a-row / 3-in-a-row game. "
+                             "Only valid with --game hex (or its rex/yavalath aliases). "
+                             "Yavalath has no perimeter bands; Rex uses standard Hex bands "
+                             "with reversed win condition.")
     parser.add_argument("-o", "--output", type=str, default="hex_board.pdf", help="Output PDF path")
     parser.add_argument("-p", "--paper", type=str, default=None,
                         help=f"Paper size. Choices: {', '.join(PAPER_SIZES)}. "
@@ -1637,6 +1962,35 @@ if __name__ == "__main__":
                             help="No margin: stones flush with hex walls. For testing only.")
     args = parser.parse_args()
 
+    # --game rex / --game yavalath are convenience aliases for
+    # --game hex --variant rex / --variant yavalath. Promote them now and
+    # collapse the rendering path through the hex family.
+    if args.game in ("rex", "yavalath"):
+        if args.variant is not None and args.variant != args.game:
+            print(f"Error: --variant {args.variant!r} conflicts with "
+                  f"--game {args.game!r}. Pick one.", file=sys.stderr)
+            sys.exit(2)
+        args.variant = args.game
+        args.game = "hex"
+
+    # Apply the most-played standard size when the user did not pass one.
+    if args.size is None:
+        game_key = "hex" if args.game == "hex" and args.variant is None else args.game
+        if args.variant is not None:
+            game_key = args.variant  # 'rex' or 'yavalath'
+        elif args.game in ("havannah", "trike"):
+            game_key = args.game
+        else:
+            game_key = "hex"
+        args.size = DEFAULT_SIZES.get(game_key, 11)
+        print(f"Using default size {args.size} for {game_key} "
+              f"(most-played standard). Pass an integer to override.")
+
+    if args.variant is not None and args.game != "hex":
+        print(f"Error: --variant {args.variant!r} requires --game hex "
+              f"(got --game {args.game!r}).", file=sys.stderr)
+        sys.exit(2)
+
     # Per-game configuration: extent function used for sizing.
     if args.game == "havannah":
         game_extent_fn = havannah_extent_r_units
@@ -1646,7 +2000,12 @@ if __name__ == "__main__":
         game_label = f"TRIKE SIDE-{args.size}"
     else:
         game_extent_fn = grid_extent_r_units
-        game_label = f"HEX {args.size}x{args.size}"
+        if args.variant == "yavalath":
+            game_label = f"YAVALATH HEXHEX-{args.size}"
+        elif args.variant == "rex":
+            game_label = f"REX HEXHEX-{args.size}"
+        else:
+            game_label = f"HEX {args.size}x{args.size}"
 
     if args.size < 2:
         print("Error: Board size must be at least 2.", file=sys.stderr)
@@ -1656,6 +2015,11 @@ if __name__ == "__main__":
     if args.game in ("havannah", "trike") and args.label_set != "wb":
         flag_game = "Havannah" if args.game == "havannah" else "Trike"
         print(f"Warning: --label-set is ignored for {flag_game} (no side bands).", file=sys.stderr)
+    if args.variant == "yavalath":
+        if args.label_set != "wb":
+            print("Warning: --label-set is ignored for Yavalath (no side bands).", file=sys.stderr)
+        if args.corner_dots:
+            print("Warning: --corner-dots is ignored for Yavalath (no marked corners).", file=sys.stderr)
     if args.game == "trike" and args.corner_dots:
         print("Warning: --corner-dots is ignored for Trike (no marked corners).", file=sys.stderr)
 
@@ -1727,8 +2091,14 @@ if __name__ == "__main__":
         else:
             write_svg(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
                       mode=args.mode, pen_paper=args.pen_paper, coords=show_coords,
-                      theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots)
-            print(f"Generated {args.size}x{args.size} SVG: {args.output}")
+                      theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots,
+                      variant=args.variant)
+            if args.variant == "yavalath":
+                print(f"Generated Yavalath hexhex-{args.size} SVG: {args.output}")
+            elif args.variant == "rex":
+                print(f"Generated Rex hexhex-{args.size} SVG: {args.output}")
+            else:
+                print(f"Generated {args.size}x{args.size} SVG: {args.output}")
         sys.exit(0)
 
     # Multi-board dispatch: --sizes, --pad, or --n-up > 1 take over.
@@ -1752,7 +2122,8 @@ if __name__ == "__main__":
         r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
                           pen_paper=args.pen_paper, coords=show_coords, mode=args.mode,
                           theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots,
-                          rules=args.rules, cell_coords=args.cell_coords, stone_mode=stone_mode)
+                          rules=args.rules, cell_coords=args.cell_coords, stone_mode=stone_mode,
+                          variant=args.variant)
 
     # Diagnostics.
     flat_mm, _ = hex_fits_stone(r, args.stone_size or 0)
