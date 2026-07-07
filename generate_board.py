@@ -98,15 +98,148 @@ LABEL_SETS = {
 }
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Shared hex geometry (pointy-top hexes)
+#
+# Pointy-top hex centered at origin with circumradius r has vertices at angles
+# (π/6 + i·π/3), i = 0..5. Width (flat-to-flat) = √3·r, height (point-to-point)
+# = 2·r. Used by both Hex (odd-r offset layout) and Havannah (axial layout).
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def hex_vertices(cx, cy, radius):
+    """Return the 6 (x, y) vertices of a pointy-top hex centered at (cx, cy)."""
+    return [
+        (cx + radius * math.cos(math.pi / 6 + i * math.pi / 3),
+         cy + radius * math.sin(math.pi / 6 + i * math.pi / 3))
+        for i in range(6)
+    ]
+
+
+def axial_to_pixel(q, r, R):
+    """Convert axial coords (q, r) with q+r+s=0 to pixel center for pointy-top hex.
+
+    `R` is the circumradius (point-to-point distance / 2). Returns (cx, cy)
+    measured from the hex board's own origin (the center cell sits at (0, 0)).
+
+    Adjacent cells (q,r) and (q,r+1) share a horizontal flat edge — center
+    distance = R*sqrt(3) = flat-to-flat width.
+    """
+    cx = R * SQRT3 * (q + r / 2)
+    cy = R * 1.5 * r
+    return cx, cy
+
+
 def grid_extent_r_units(N):
     """Return (w_units, h_units): grid extent in r units for NxN pointy-top board."""
     return (SQRT3 * (1.5 * (N - 1) + 1), 1.5 * (N - 1) + 2)
 
 
-def pick_page_size(name, board_size):
+# ──────────────────────────────────────────────────────────────────────────────
+# Havannah geometry
+#
+# A base-N Havannah board is a regular hexagon with N cells per side. Cells use
+# axial coords (q, r) with s = -q - r. The center cell is (0, 0). The six corner
+# cells are the cells furthest from the origin along the six axial directions:
+#   (N-1, -(N-1)), (N-1, 0), (0, N-1), (-(N-1), N-1), (-(N-1), 0), (0, -(N-1))
+# Total cells = 3N² − 3N + 1.  Examples: N=8 → 169, N=10 → 271.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def havannah_cell_count(N):
+    return 3 * N * N - 3 * N + 1
+
+
+def havannah_in_bounds(q, r, N):
+    """True iff axial cell (q, r) is part of the base-N board."""
+    s = -q - r
+    return max(abs(q), abs(r), abs(s)) <= N - 1
+
+
+def havannah_cells(N):
+    """Yield (q, r) for every cell on a base-N board, in a stable order."""
+    for q in range(-(N - 1), N):
+        for r in range(-(N - 1), N):
+            if havannah_in_bounds(q, r, N):
+                yield q, r
+
+
+def havannah_corners(N):
+    """Return the six (q, r) corner cells (axial coords)."""
+    return [
+        (N - 1, -(N - 1)),
+        (N - 1, 0),
+        (0, N - 1),
+        (-(N - 1), N - 1),
+        (-(N - 1), 0),
+        (0, -(N - 1)),
+    ]
+
+
+def havannah_extent_r_units(N):
+    """Return (w_units, h_units): grid extent in R units for base-N board.
+
+    Pointy-top axial layout: cells (q, r) center at
+      cx = R·√3·(q + r/2),  cy = R·1.5·r.
+    In base-N, max |q + r/2| = N − 1 and max |r| = N − 1.
+    Width  = 2·√3·(N − 1)  · R
+    Height = 3·(N − 1)     · R
+    The board is wider than tall (the regular-hex shape is for the *cells*,
+    not the cell-centers' bounding box).
+    """
+    return (2 * SQRT3 * (N - 1), 3 * (N - 1))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Trike geometry
+#
+# A side-N Trike board is a triangular region of pointy-top hex cells, point up.
+# Cells use axial coords (q, r) with the in-bounds predicate:
+#     0 ≤ q and 0 ≤ r and q + r < N
+# The three vertices of the triangle are the cells (0, 0) [bottom-left],
+# (N − 1, 0) [bottom-right], and (0, N − 1) [top].
+# Cell count = N·(N + 1)/2. Examples: N=7 → 28, N=13 → 91, N=19 → 190.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def trike_cell_count(N):
+    return N * (N + 1) // 2
+
+
+def trike_in_bounds(q, r, N):
+    return q >= 0 and r >= 0 and (q + r) < N
+
+
+def trike_cells(N):
+    """Yield (q, r) for every cell on a side-N Trike board, row-major order."""
+    for r in range(N):
+        for q in range(N - r):
+            yield q, r
+
+
+def trike_vertices(N):
+    """Return the three (q, r) corner cells of the triangular board."""
+    return [(0, 0), (N - 1, 0), (0, N - 1)]
+
+
+def trike_extent_r_units(N):
+    """Return (w_units, h_units): grid extent in R units for side-N board.
+
+    With cell centers at cx = R·√3·(q + r/2), cy = R·1.5·r:
+      Vertices  : (0,0), (N−1,0), (0, N−1)
+                  → (0, 0), (√3·(N−1)·R, 0), (√3·(N−1)/2 · R, 1.5·(N−1)·R)
+      Width  = √3·(N − 1)        (bottom edge length, in R units)
+      Height = 1.5·(N − 1)       (apex above bottom edge)
+    """
+    return (SQRT3 * (N - 1), 1.5 * (N - 1))
+
+
+def pick_page_size(name, board_size, extent_fn=None):
     """Return page size in points, auto-rotating to landscape when wider fits better.
 
-    For N >= 3 the hex grid is wider than tall, so landscape uses paper better.
+    For N >= 3 the hex grid is wider than tall (Hex) or square (Havannah), so
+    landscape uses paper better in both cases. `extent_fn` lets callers pass a
+    game-specific extent calculator; defaults to the Hex (odd-r offset) one.
     """
     base = PAPER_SIZES[name.lower()]
     w, h = base
@@ -124,13 +257,17 @@ FIT_RATIOS = {
 }
 
 
-def auto_pick_paper(board_size, stone_diameter_mm, margin_pt, mode="safe"):
+def auto_pick_paper(board_size, stone_diameter_mm, margin_pt, mode="safe",
+                    extent_fn=None):
     """Find the smallest paper that fits the board + stone requirement.
 
     `mode` controls the maximum stone-to-hex flat-to-flat ratio:
       - safe      : 0.70  (30% margin, default)
       - makeitwork: 0.85  (tight fit, stones nearly fill hex)
       - unsafe    : 1.00  (stones flush with hex walls, no margin)
+
+    `extent_fn(N)` returns (gw_units, gh_units) for the board geometry.
+    Defaults to the Hex (odd-r offset) extent.
 
     Returns (paper_name, orientation, achieved_ratio) or (None, None, ratio).
     """
@@ -140,7 +277,9 @@ def auto_pick_paper(board_size, stone_diameter_mm, margin_pt, mode="safe"):
     # Apply same 8% label safety as compute_r().
     min_r_pt /= 0.92
 
-    gw_units, gh_units = grid_extent_r_units(board_size)
+    if extent_fn is None:
+        extent_fn = grid_extent_r_units
+    gw_units, gh_units = extent_fn(board_size)
     need_w_pt = gw_units * min_r_pt + 2 * margin_pt
     need_h_pt = gh_units * min_r_pt + 2 * margin_pt
 
@@ -152,13 +291,23 @@ def auto_pick_paper(board_size, stone_diameter_mm, margin_pt, mode="safe"):
     return None, None, ratio
 
 
-def compute_r(page_w, page_h, margin, board_size):
-    """Largest r that fits the page after margin, with 8% safety so labels don't clip."""
-    gw_units, gh_units = grid_extent_r_units(board_size)
+def compute_r(page_w, page_h, margin, board_size, extent_fn=None):
+    """Largest r that fits the page after margin, with 8% safety so labels don't clip.
+
+    `extent_fn(N)` defaults to grid_extent_r_units (Hex). Pass havannah_extent_r_units
+    for Havannah boards.
+    """
+    if extent_fn is None:
+        extent_fn = grid_extent_r_units
+    return compute_r_for_extent(page_w, page_h, margin, *extent_fn(board_size))
+
+
+def compute_r_for_extent(page_w, page_h, margin, extent_w_units, extent_h_units):
+    """Same as compute_r() but takes an explicit extent (game-agnostic)."""
     max_w = page_w - 2 * margin
     max_h = page_h - 2 * margin
-    safety = 0.92  # reserve room for side labels
-    return min(max_w / gw_units, max_h / gh_units) * safety, max_w, max_h
+    safety = 0.92
+    return min(max_w / extent_w_units, max_h / extent_h_units) * safety, max_w, max_h
 
 
 def hex_fits_stone(r_pt, stone_diameter_mm):
@@ -211,11 +360,7 @@ def draw_board_into_region(c, board_size, region, margin_pt,
         c.drawCentredString(center_x, ry + rh - 12, title)
 
     def get_hex_points(cx, cy, radius):
-        pts = []
-        for i in range(6):
-            angle = math.pi / 6 + i * math.pi / 3
-            pts.append((cx + radius * math.cos(angle), cy + radius * math.sin(angle)))
-        return pts
+        return hex_vertices(cx, cy, radius)
 
     c.setStrokeColor(colors.HexColor(theme_def["stroke"]))
     c.setLineWidth(1.0)
@@ -653,6 +798,636 @@ def draw_rules_page(c, page_w, page_h, theme="classic", label_set="wb", stone_mo
         "Hex is a member of the connection game family. See en.wikipedia.org/wiki/Hex_(board_game) for the full rules.")
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Havannah drawing
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _havannah_cell_color(theme_def, q, r):
+    """Alternating fill based on (q + r) parity, matching Hex's checkerboard."""
+    return theme_def["fill_a"] if (q + r) & 1 else theme_def["fill_b"]
+
+
+def draw_havannah_board_into_region(c, base, region, margin_pt,
+                                    pen_paper, coords, theme, corner_dots,
+                                    draw_title=True, cell_coords=False):
+    """Draw a base-N Havannah board into a rectangular region.
+
+    `region` = (x, y, w, h): bottom-left corner plus size of the region.
+    The board fills the region (with its own internal margin_pt).
+    Returns the r used (in points).
+    """
+    rx, ry, rw, rh = region
+    theme_def = THEMES[theme]
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(rx, ry, rw, rh, fill=True, stroke=False)
+
+    gw_units, gh_units = havannah_extent_r_units(base)
+    r = min(rw / gw_units, rh / gh_units) * 0.92
+
+    center_x = rx + rw / 2
+    center_y = ry + rh / 2
+
+    # Havannah hex grid is symmetric about its center; extent is ±(N - 0.5)·r.
+    extent = (base - 0.5) * r
+    offset_x = center_x
+    offset_y = center_y
+
+    if draw_title:
+        title = (f"HAVANNAH BOARD \u2014 PAPER & PENCIL (BASE-{base})"
+                 if pen_paper else
+                 f"HAVANNAH BOARD (BASE-{base})")
+        title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+        c.setFont("Helvetica-Bold", 12)
+        c.setFillColor(colors.HexColor(title_color))
+        c.drawCentredString(center_x, ry + rh - 12, title)
+
+    c.setStrokeColor(colors.HexColor(theme_def["stroke"]))
+    c.setLineWidth(1.0)
+    for q, rr in havannah_cells(base):
+        cx, cy = axial_to_pixel(q, rr, r)
+        cx += offset_x
+        cy += offset_y
+        pts = hex_vertices(cx, cy, r)
+        c.setFillColor(colors.HexColor(_havannah_cell_color(theme_def, q, rr)))
+        path = c.beginPath()
+        path.moveTo(pts[0][0], pts[0][1])
+        for p in pts[1:]:
+            path.lineTo(p[0], p[1])
+        path.close()
+        c.drawPath(path, fill=True, stroke=True)
+
+    # Optional corner dots: Havannah has 6 corner cells (no side bands).
+    if corner_dots:
+        c.setFillColor(colors.HexColor(theme_def["black"]))
+        for q, rr in havannah_corners(base):
+            cx, cy = axial_to_pixel(q, rr, r)
+            c.circle(cx + offset_x, cy + offset_y, r * 0.18, fill=True, stroke=False)
+
+    # Cell labels (axial q,r). Only when cells are large enough to be legible.
+    show_cell_labels = cell_coords or ((coords or pen_paper) and r >= 11)
+    if show_cell_labels:
+        cell_color = "#FFFFFF" if theme == "dark" else "#444444"
+        cell_font = max(6, r * 0.28)
+        c.setFont("Helvetica", cell_font)
+        c.setFillColor(colors.HexColor(cell_color))
+        for q, rr in havannah_cells(base):
+            cx, cy = axial_to_pixel(q, rr, r)
+            c.drawCentredString(cx + offset_x, cy + offset_y - cell_font * 0.35, f"{q},{rr}")
+
+    return r
+
+
+def write_havannah_svg(output_filename, base, paper="letter", margin_pt=None, mode="safe",
+                       pen_paper=False, coords=True, theme="classic",
+                       corner_dots=False, rules=False):
+    """Render a Havannah board as SVG (vector, web-friendly). Single page only."""
+    page_w, page_h = pick_page_size(paper, base)
+    if margin_pt is None:
+        if mode in ("makeitwork", "unsafe"):
+            margin_pt = 4
+        else:
+            margin_pt = DEFAULT_MARGINS_PT[paper.lower()]
+    r, _, _ = compute_r(page_w, page_h, margin_pt, base, extent_fn=havannah_extent_r_units)
+
+    theme_def = THEMES[theme]
+    center_x = page_w / 2
+    center_y = page_h / 2
+
+    bg = theme_def["page_bg"] or "#FFFFFF"
+    title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+    subtle = "#888888" if theme != "dark" else "#BBBBBB"
+
+    # Reserve title strip + footer strip so they don't overlap the board.
+    title_strip = 28
+    footer_strip = 18 if pen_paper else 0
+    board_top = page_h - title_strip
+    board_h = board_top - footer_strip
+    board_cx = page_w / 2
+    board_cy = footer_strip + board_h / 2
+
+    out = [f'<?xml version="1.0" encoding="UTF-8"?>',
+           f'<svg xmlns="http://www.w3.org/2000/svg" width="{page_w:.0f}" height="{page_h:.0f}" viewBox="0 0 {page_w:.0f} {page_h:.0f}">',
+           f'<rect width="{page_w:.0f}" height="{page_h:.0f}" fill="{bg}"/>']
+
+    title = (f"HAVANNAH BOARD \u2014 PAPER & PENCIL (BASE-{base})"
+             if pen_paper else f"HAVANNAH BOARD (BASE-{base})")
+    title_y = page_h - max(14, margin_pt / 2)
+    out.append(
+        f'<text x="{board_cx:.2f}" y="{title_y:.2f}" font-family="Helvetica,Arial,sans-serif" '
+        f'font-size="16" font-weight="bold" fill="{title_color}" text-anchor="middle">{title}</text>'
+    )
+
+    for q, rr in havannah_cells(base):
+        cx, cy = axial_to_pixel(q, rr, r)
+        cx += board_cx
+        cy += board_cy
+        pts = hex_vertices(cx, cy, r)
+        fill = _havannah_cell_color(theme_def, q, rr)
+        pts_str = " ".join(f"{x:.2f},{y:.2f}" for x, y in pts)
+        out.append(
+            f'<polygon points="{pts_str}" fill="{fill}" stroke="{theme_def["stroke"]}" stroke-width="1"/>'
+        )
+
+    if corner_dots:
+        for q, rr in havannah_corners(base):
+            cx, cy = axial_to_pixel(q, rr, r)
+            out.append(
+                f'<circle cx="{cx + board_cx:.2f}" cy="{cy + board_cy:.2f}" '
+                f'r="{r * 0.18:.2f}" fill="{theme_def["black"]}"/>'
+            )
+
+    if (coords or pen_paper) and r >= 11:
+        cell_color = "#FFFFFF" if theme == "dark" else "#444444"
+        cell_font = max(6, r * 0.28)
+        for q, rr in havannah_cells(base):
+            cx, cy = axial_to_pixel(q, rr, r)
+            out.append(
+                f'<text x="{cx + board_cx:.2f}" y="{cy + board_cy + cell_font * 0.35:.2f}" '
+                f'font-family="Helvetica,Arial,sans-serif" font-size="{cell_font:.1f}" '
+                f'fill="{cell_color}" text-anchor="middle">{q},{rr}</text>'
+            )
+
+    if pen_paper:
+        hint = "Mark cells with X / O / your initial.  \u2022  Notation: q,r (axial)."
+        footer = (f"{hint}  \u2022  White moves first.  "
+                  f"\u2022  Connect any two of: 2 corners, 3 edges, or a ring.")
+        out.append(
+            f'<text x="{board_cx:.2f}" y="{max(14, footer_strip / 2 + 6):.2f}" '
+            f'font-family="Helvetica,Arial,sans-serif" font-size="8" font-style="italic" '
+            f'fill="{subtle}" text-anchor="middle">{footer}</text>'
+        )
+
+    out.append('</svg>')
+    with open(output_filename, "w", encoding="utf-8") as f:
+        f.write("\n".join(out))
+
+
+def draw_havannah_board(output_filename, base, paper="letter", margin_pt=None,
+                        pen_paper=False, coords=True, mode="safe",
+                        theme="classic", corner_dots=False, rules=False,
+                        cell_coords=False, stone_mode=False):
+    page_w, page_h = pick_page_size(paper, base)
+    if margin_pt is None:
+        if mode in ("makeitwork", "unsafe"):
+            margin_pt = 4
+        else:
+            margin_pt = DEFAULT_MARGINS_PT[paper.lower()]
+    r, max_w, max_h = compute_r(page_w, page_h, margin_pt, base,
+                                extent_fn=havannah_extent_r_units)
+
+    c = canvas.Canvas(output_filename, pagesize=(page_w, page_h))
+    theme_def = THEMES[theme]
+
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(0, 0, page_w, page_h, fill=True, stroke=False)
+
+    title = (f"HAVANNAH BOARD \u2014 PAPER & PENCIL (BASE-{base})"
+             if pen_paper else
+             f"HAVANNAH BOARD (BASE-{base})")
+    c.setTitle(title)
+    title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+    c.setFont("Helvetica-Bold", 16)
+    c.setFillColor(colors.HexColor(title_color))
+    title_y = max(14, margin_pt / 2)
+    c.drawCentredString(page_w / 2, page_h - title_y, title)
+
+    # Reserve title strip at top + footer strip at bottom (for pen-paper footer).
+    title_strip = 28
+    footer_strip = 18 if pen_paper else 0
+    board_region = (0, footer_strip, page_w, page_h - title_strip - footer_strip)
+
+    draw_havannah_board_into_region(
+        c, base, board_region, margin_pt,
+        pen_paper, coords, theme, corner_dots,
+        draw_title=False, cell_coords=cell_coords,
+    )
+
+    if pen_paper:
+        footer_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+        if stone_mode:
+            hint = "Place stones in hex centers.  \u2022  Notation: q,r (axial)."
+        else:
+            hint = "Mark cells with X / O / your initial.  \u2022  Notation: q,r (axial)."
+        c.setFont("Helvetica-Oblique", 8)
+        c.setFillColor(colors.HexColor(footer_color))
+        c.drawCentredString(page_w / 2, max(14, margin_pt / 2),
+            f"{hint}  \u2022  White moves first.  \u2022  Connect any two of: 2 corners, 3 edges, or a ring.")
+
+    if rules:
+        c.showPage()
+        draw_havannah_rules_page(c, page_w, page_h, theme=theme, stone_mode=stone_mode)
+        c.showPage()
+    else:
+        c.showPage()
+    c.save()
+
+    return r
+
+
+def draw_havannah_rules_page(c, page_w, page_h, theme="classic", stone_mode=False):
+    """Draw a one-page Havannah rules summary as the final page of the PDF."""
+    theme_def = THEMES[theme]
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(0, 0, page_w, page_h, fill=True, stroke=False)
+
+    text_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+    subtle_color = "#888888" if theme != "dark" else "#BBBBBB"
+    accent = theme_def["black"]
+
+    margin = 54  # 0.75 inch
+    x = margin
+    y = page_h - margin
+    max_w = page_w - 2 * margin
+
+    c.setFont("Helvetica-Bold", 30)
+    c.setFillColor(colors.HexColor(text_color))
+    c.drawString(x, y, "How to Play Havannah")
+    y -= 36
+
+    c.setFont("Helvetica-Oblique", 13)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawString(x, y, "Invented by Christian Freeling (1981) \u2022 Connection game family")
+    y -= 36
+
+    def section(title_text):
+        nonlocal y
+        c.setFont("Helvetica-Bold", 18)
+        c.setFillColor(colors.HexColor(accent))
+        c.drawString(x, y, title_text)
+        y -= 24
+
+    def body(text):
+        nonlocal y
+        c.setFont("Helvetica", 14)
+        c.setFillColor(colors.HexColor(text_color))
+        words = text.split()
+        line = ""
+        for w in words:
+            test = (line + " " + w).strip()
+            if c.stringWidth(test, "Helvetica", 14) > max_w:
+                c.drawString(x, y, line)
+                y -= 18
+                line = w
+            else:
+                line = test
+        if line:
+            c.drawString(x, y, line)
+            y -= 18
+        y -= 6
+
+    section("Players")
+    body("Two players. One plays white stones, the other plays black stones.")
+
+    section("Setup")
+    if stone_mode:
+        body("Use the board on the previous page with your stone set. Each player has stones of their own color.")
+    else:
+        body("Use the board on the previous page with pen and paper. Each player needs a pen or marker.")
+
+    section("Goal")
+    body("Be the first to complete any one of three structures using connected stones of your color:")
+
+    section("Win condition 1: ring")
+    body("Form a closed loop around one or more cells (the encircled cells may be occupied by either player or empty).")
+
+    section("Win condition 2: bridge")
+    body("Connect any two of the six corner cells of the board.")
+
+    section("Win condition 3: fork")
+    body("Connect any three of the six edges of the board. (Corner cells are not part of an edge.)")
+
+    section("How to play")
+    if stone_mode:
+        body("On your turn, place a stone of your color on any empty hex cell, centered within the hex. Stones are never moved or removed.")
+    else:
+        body("On your turn, mark any empty hex cell with your symbol (X, O, your initial, or a color). Marks are never erased or overwritten.")
+
+    section("The pie rule (recommended for fairness)")
+    body("After the first player makes their opening move, the second player may choose to either keep their color or swap colors. This largely nullifies the first-move advantage.")
+
+    section("Coordinate notation")
+    body("Cells use axial (cube) coordinates (q, r) with s = \u2212q \u2212 r. A cell's address is the pair q,r, e.g. \"3,\u22122\".")
+
+    c.setFont("Helvetica-Oblique", 11)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawCentredString(page_w / 2, margin / 2,
+        "Havannah is a member of the connection game family. See en.wikipedia.org/wiki/Havannah_(board_game) for the full rules.")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Trike drawing
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _trike_cell_color(theme_def, q, r):
+    """Alternating fill based on (q + r) parity, matching Hex/Havannah."""
+    return theme_def["fill_a"] if (q + r) & 1 else theme_def["fill_b"]
+
+
+def draw_trike_board_into_region(c, side, region, margin_pt,
+                                 pen_paper, coords, theme,
+                                 draw_title=True, cell_coords=False):
+    """Draw a side-N Trike board (point-up triangle) into a rectangular region.
+
+    `region` = (x, y, w, h): bottom-left corner plus size of the region.
+    The board fills the region (with its own internal margin_pt).
+    Returns the r used (in points).
+    """
+    rx, ry, rw, rh = region
+    theme_def = THEMES[theme]
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(rx, ry, rw, rh, fill=True, stroke=False)
+
+    gw_units, gh_units = trike_extent_r_units(side)
+    # Reserve ~2r of vertical slack: hex vertices extend r above the top cell
+    # center and r below the bottom cell center, so the bounding box of all
+    # drawn hexes is larger than the cell-center bounding box by 2r in y.
+    # Use a binary search-friendly closed form: r such that
+    #   r*gh_units + 2r = rh   →   r = rh / (gh_units + 2)
+    r_y = rh / (gh_units + 2)
+    r_x = rw / gw_units
+    r = min(r_x, r_y) * 0.96
+
+    # Triangle vertices in local coords:
+    #   bottom-left  = (0, 0)
+    #   bottom-right = (R*sqrt(3)*(N-1), 0)
+    #   top          = (R*sqrt(3)*(N-1)/2, R*1.5*(N-1))
+    # Center horizontally; align bottom edge with the bottom of the region so
+    # the apex has clearance toward the top.
+    triangle_w = gw_units * r
+    triangle_h = gh_units * r
+    board_cx = rx + rw / 2
+    anchor_x = board_cx - triangle_w / 2
+    anchor_y = ry + r  # bottom-left vertex's hex center; its bottom edge is at ry.
+
+    if draw_title:
+        title = (f"TRIKE BOARD \u2014 PAPER & PENCIL (SIDE-{side})"
+                 if pen_paper else
+                 f"TRIKE BOARD (SIDE-{side})")
+        title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+        c.setFont("Helvetica-Bold", 12)
+        c.setFillColor(colors.HexColor(title_color))
+        c.drawCentredString(board_cx, ry + rh - 12, title)
+
+    c.setStrokeColor(colors.HexColor(theme_def["stroke"]))
+    c.setLineWidth(1.0)
+    for q, rr in trike_cells(side):
+        cx, cy = axial_to_pixel(q, rr, r)
+        cx += anchor_x
+        cy += anchor_y
+        pts = hex_vertices(cx, cy, r)
+        c.setFillColor(colors.HexColor(_trike_cell_color(theme_def, q, rr)))
+        path = c.beginPath()
+        path.moveTo(pts[0][0], pts[0][1])
+        for p in pts[1:]:
+            path.lineTo(p[0], p[1])
+        path.close()
+        c.drawPath(path, fill=True, stroke=True)
+
+    # Cell labels (axial q,r). Only when cells are large enough.
+    show_cell_labels = cell_coords or ((coords or pen_paper) and r >= 11)
+    if show_cell_labels:
+        cell_color = "#FFFFFF" if theme == "dark" else "#444444"
+        cell_font = max(5, r * 0.24)
+        c.setFont("Helvetica", cell_font)
+        c.setFillColor(colors.HexColor(cell_color))
+        for q, rr in trike_cells(side):
+            cx, cy = axial_to_pixel(q, rr, r)
+            c.drawCentredString(cx + anchor_x, cy + anchor_y - cell_font * 0.35, f"{q},{rr}")
+
+    return r
+
+
+def write_trike_svg(output_filename, side, paper="letter", margin_pt=None, mode="safe",
+                    pen_paper=False, coords=True, theme="classic", rules=False):
+    """Render a side-N Trike board as SVG (vector, web-friendly). Single page only."""
+    page_w, page_h = pick_page_size(paper, side)
+    if margin_pt is None:
+        if mode in ("makeitwork", "unsafe"):
+            margin_pt = 4
+        else:
+            margin_pt = DEFAULT_MARGINS_PT[paper.lower()]
+    r, _, _ = compute_r(page_w, page_h, margin_pt, side, extent_fn=trike_extent_r_units)
+
+    theme_def = THEMES[theme]
+    subtle = "#888888" if theme != "dark" else "#BBBBBB"
+    title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+    bg = theme_def["page_bg"] or "#FFFFFF"
+
+    # Reserve title + footer strips so they don't overlap the board.
+    title_strip = 28
+    footer_strip = 18 if pen_paper else 0
+    board_top = page_h - title_strip
+    board_h = board_top - footer_strip
+    board_cx = page_w / 2
+    board_cy = footer_strip + board_h / 2
+
+    gw_units, gh_units = trike_extent_r_units(side)
+    triangle_w = gw_units * r
+    triangle_h = gh_units * r
+    anchor_x = board_cx - triangle_w / 2
+    anchor_y = footer_strip + r  # bottom-left vertex's hex center; bottom edge at footer_strip.
+
+    out = [f'<?xml version="1.0" encoding="UTF-8"?>',
+           f'<svg xmlns="http://www.w3.org/2000/svg" width="{page_w:.0f}" height="{page_h:.0f}" viewBox="0 0 {page_w:.0f} {page_h:.0f}">',
+           f'<rect width="{page_w:.0f}" height="{page_h:.0f}" fill="{bg}"/>']
+
+    title = (f"TRIKE BOARD \u2014 PAPER & PENCIL (SIDE-{side})"
+             if pen_paper else f"TRIKE BOARD (SIDE-{side})")
+    title_y = page_h - max(14, margin_pt / 2)
+    out.append(
+        f'<text x="{board_cx:.2f}" y="{title_y:.2f}" font-family="Helvetica,Arial,sans-serif" '
+        f'font-size="16" font-weight="bold" fill="{title_color}" text-anchor="middle">{title}</text>'
+    )
+
+    for q, rr in trike_cells(side):
+        cx, cy = axial_to_pixel(q, rr, r)
+        cx += anchor_x
+        cy += anchor_y
+        pts = hex_vertices(cx, cy, r)
+        fill = _trike_cell_color(theme_def, q, rr)
+        pts_str = " ".join(f"{x:.2f},{y:.2f}" for x, y in pts)
+        out.append(
+            f'<polygon points="{pts_str}" fill="{fill}" stroke="{theme_def["stroke"]}" stroke-width="1"/>'
+        )
+
+    if (coords or pen_paper) and r >= 11:
+        cell_color = "#FFFFFF" if theme == "dark" else "#444444"
+        cell_font = max(5, r * 0.24)
+        for q, rr in trike_cells(side):
+            cx, cy = axial_to_pixel(q, rr, r)
+            out.append(
+                f'<text x="{cx + anchor_x:.2f}" y="{cy + anchor_y + cell_font * 0.35:.2f}" '
+                f'font-family="Helvetica,Arial,sans-serif" font-size="{cell_font:.1f}" '
+                f'fill="{cell_color}" text-anchor="middle">{q},{rr}</text>'
+            )
+
+    if pen_paper:
+        hint = "Mark cells with X / O / your initial.  \u2022  Notation: q,r (axial)."
+        footer = (f"{hint}  \u2022  P1 places first checker + pawn, P2 may swap.  "
+                  f"\u2022  Highest adjacent-checker score when pawn is trapped wins.")
+        out.append(
+            f'<text x="{board_cx:.2f}" y="{max(14, footer_strip / 2 + 6):.2f}" '
+            f'font-family="Helvetica,Arial,sans-serif" font-size="8" font-style="italic" '
+            f'fill="{subtle}" text-anchor="middle">{footer}</text>'
+        )
+
+    out.append('</svg>')
+    with open(output_filename, "w", encoding="utf-8") as f:
+        f.write("\n".join(out))
+
+
+def draw_trike_board(output_filename, side, paper="letter", margin_pt=None,
+                     pen_paper=False, coords=True, mode="safe",
+                     theme="classic", rules=False,
+                     cell_coords=False, stone_mode=False):
+    page_w, page_h = pick_page_size(paper, side)
+    if margin_pt is None:
+        if mode in ("makeitwork", "unsafe"):
+            margin_pt = 4
+        else:
+            margin_pt = DEFAULT_MARGINS_PT[paper.lower()]
+    r, max_w, max_h = compute_r(page_w, page_h, margin_pt, side,
+                                extent_fn=trike_extent_r_units)
+
+    c = canvas.Canvas(output_filename, pagesize=(page_w, page_h))
+    theme_def = THEMES[theme]
+
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(0, 0, page_w, page_h, fill=True, stroke=False)
+
+    title = (f"TRIKE BOARD \u2014 PAPER & PENCIL (SIDE-{side})"
+             if pen_paper else
+             f"TRIKE BOARD (SIDE-{side})")
+    c.setTitle(title)
+    title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+    c.setFont("Helvetica-Bold", 16)
+    c.setFillColor(colors.HexColor(title_color))
+    title_y = max(14, margin_pt / 2)
+    c.drawCentredString(page_w / 2, page_h - title_y, title)
+
+    title_strip = 28
+    footer_strip = 18 if pen_paper else 0
+    board_region = (0, footer_strip, page_w, page_h - title_strip - footer_strip)
+    draw_trike_board_into_region(
+        c, side, board_region, margin_pt,
+        pen_paper, coords, theme,
+        draw_title=False, cell_coords=cell_coords,
+    )
+
+    if pen_paper:
+        footer_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+        if stone_mode:
+            hint = "Place stones/checkers on hexes.  \u2022  Notation: q,r (axial)."
+        else:
+            hint = "Mark cells with X / O / your initial.  \u2022  Notation: q,r (axial)."
+        c.setFont("Helvetica-Oblique", 8)
+        c.setFillColor(colors.HexColor(footer_color))
+        c.drawCentredString(page_w / 2, max(14, margin_pt / 2),
+            f"{hint}  \u2022  P1 places first checker + pawn, P2 may swap.  \u2022  Highest adjacent-checker score when pawn is trapped wins.")
+
+    if rules:
+        c.showPage()
+        draw_trike_rules_page(c, page_w, page_h, theme=theme, stone_mode=stone_mode)
+        c.showPage()
+    else:
+        c.showPage()
+    c.save()
+
+    return r
+
+
+def draw_trike_rules_page(c, page_w, page_h, theme="classic", stone_mode=False):
+    """Draw a one-page Trike rules summary as the final page of the PDF."""
+    theme_def = THEMES[theme]
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(0, 0, page_w, page_h, fill=True, stroke=False)
+
+    text_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
+    subtle_color = "#888888" if theme != "dark" else "#BBBBBB"
+    accent = theme_def["black"]
+
+    margin = 54  # 0.75 inch
+    x = margin
+    y = page_h - margin
+    max_w = page_w - 2 * margin
+
+    c.setFont("Helvetica-Bold", 30)
+    c.setFillColor(colors.HexColor(text_color))
+    c.drawString(x, y, "How to Play Trike")
+    y -= 36
+
+    c.setFont("Helvetica-Oblique", 13)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawString(x, y, "Designed by Alek Erickson (2020) \u2022 Combinatorial abstract")
+    y -= 36
+
+    def section(title_text):
+        nonlocal y
+        c.setFont("Helvetica-Bold", 18)
+        c.setFillColor(colors.HexColor(accent))
+        c.drawString(x, y, title_text)
+        y -= 24
+
+    def body(text):
+        nonlocal y
+        c.setFont("Helvetica", 14)
+        c.setFillColor(colors.HexColor(text_color))
+        words = text.split()
+        line = ""
+        for w in words:
+            test = (line + " " + w).strip()
+            if c.stringWidth(test, "Helvetica", 14) > max_w:
+                c.drawString(x, y, line)
+                y -= 18
+                line = w
+            else:
+                line = test
+        if line:
+            c.drawString(x, y, line)
+            y -= 18
+        y -= 6
+
+    section("Players")
+    body("Two players. One plays white checkers, the other plays black checkers. A single neutral pawn is shared.")
+
+    section("Setup")
+    if stone_mode:
+        body("Use the board on the previous page. Each player needs their own colored checkers plus one shared neutral pawn.")
+    else:
+        body("Use the board on the previous page with pen and paper. Each player needs a pen or marker plus one shared neutral pawn (a coin or stone works).")
+
+    section("Goal")
+    body("Trap the pawn. When no legal move is possible, each player scores 1 point for every checker of their own color that is adjacent to \u2014 or sitting under \u2014 the pawn. The player with the higher score wins.")
+
+    section("How to play")
+    if stone_mode:
+        body("On your turn, move the pawn any number of empty cells in a straight line in any of the six axial directions. The pawn cannot pass over or land on an occupied cell. When you move the pawn, place a checker of your own color on the destination cell, then move the pawn on top of it.")
+    else:
+        body("On your turn, move the pawn any number of empty cells in a straight line in any of the six axial directions. The pawn cannot pass over or land on an occupied cell. When you move the pawn, mark the destination cell with your symbol (X, O, or your initial), then move the pawn on top of it.")
+
+    section("Pie rule (recommended for fairness)")
+    body("Player 1 makes the opening move (places one checker on any empty cell with the pawn on top). Player 2 may then either make a normal move, or swap sides and take the opening position. The pie rule cancels the first-move advantage.")
+
+    section("Board sizing")
+    body("Standard sizes are 7\u201310 for learning and 13\u201315 for serious play. Boards from 7 to 19 are supported. Larger boards reward deeper planning; smaller boards reward sharper tactics.")
+
+    section("Coordinate notation")
+    body("Cells use axial coordinates (q, r). A cell's address is the pair q,r, e.g. \"3,1\". The triangle's three vertex cells are (0, 0), (N\u22121, 0), and (0, N\u22121).")
+
+    c.setFont("Helvetica-Oblique", 11)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawCentredString(page_w / 2, margin / 2,
+        "Trike is a combinatorial abstract. See boardgamegeek.com/boardgame/307379/trike for the full rules.")
+
+
 def _n_up_layout(n):
     """Return (cols, rows) for a roughly-square N-up layout."""
     cols = int(math.ceil(math.sqrt(n)))
@@ -673,6 +1448,38 @@ def _generate_multi(args, show_coords):
         4 if args.mode in ("makeitwork", "unsafe") else DEFAULT_MARGINS_PT[args.paper]
     )
 
+    is_havannah = args.game == "havannah"
+    is_trike = args.game == "trike"
+
+    def draw_board_into(region, size, draw_title, cell_coords):
+        if is_havannah:
+            return draw_havannah_board_into_region(
+                c, size, region, margin_pt,
+                args.pen_paper, show_coords, args.theme, args.corner_dots,
+                draw_title=draw_title, cell_coords=cell_coords,
+            )
+        if is_trike:
+            return draw_trike_board_into_region(
+                c, size, region, margin_pt,
+                args.pen_paper, show_coords, args.theme,
+                draw_title=draw_title, cell_coords=cell_coords,
+            )
+        return draw_board_into_region(
+            c, size, region, margin_pt,
+            args.pen_paper, show_coords, args.theme, args.label_set, args.corner_dots,
+            draw_title=draw_title, cell_coords=cell_coords,
+        )
+
+    def draw_rules(c, pw, ph):
+        if is_havannah:
+            return draw_havannah_rules_page(c, pw, ph, theme=args.theme,
+                                            stone_mode=args.stone_mode or args.stone_size is not None)
+        if is_trike:
+            return draw_trike_rules_page(c, pw, ph, theme=args.theme,
+                                         stone_mode=args.stone_mode or args.stone_size is not None)
+        return draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set,
+                               stone_mode=args.stone_mode or args.stone_size is not None)
+
     if args.sizes:
         sizes = [int(s.strip()) for s in args.sizes.split(",") if s.strip()]
         if not sizes:
@@ -682,17 +1489,19 @@ def _generate_multi(args, show_coords):
         title_color = "#FFFFFF" if args.theme == "dark" else "#1A1A1A"
         c.setFont("Helvetica-Bold", 16)
         c.setFillColor(colors.HexColor(title_color))
-        title = "HEX BOARD REFERENCE  " + "  \u2022  ".join(
-            f"{s}x{s}" for s in sizes
+        title = ("HAVANNAH REFERENCE  " if is_havannah
+           else "TRIKE REFERENCE  " if is_trike
+           else "HEX BOARD REFERENCE  ") + "  \u2022  ".join(
+            (f"base-{s}" if is_havannah
+             else f"side-{s}" if is_trike
+             else f"{s}x{s}") for s in sizes
         )
-        c.setTitle("Hex Board Reference")
+        c.setTitle("Havannah Reference" if is_havannah
+                   else "Trike Reference" if is_trike
+                   else "Hex Board Reference")
         c.drawCentredString(pw / 2, ph - max(14, margin_pt / 2), title)
         for sz in sizes:
-            draw_board_into_region(
-                c, sz, (0, 0, pw, ph), margin_pt,
-                args.pen_paper, show_coords, args.theme, args.label_set, args.corner_dots,
-                draw_title=True, cell_coords=args.cell_coords,
-            )
+            draw_board_into((0, 0, pw, ph), sz, draw_title=True, cell_coords=args.cell_coords)
             c.showPage()
             # Page bg fill resets each page.
             if theme_def["page_bg"]:
@@ -700,24 +1509,26 @@ def _generate_multi(args, show_coords):
                 c.rect(0, 0, pw, ph, fill=True, stroke=False)
         print(f"Generated {len(sizes)}-page reference: sizes {sizes} on {args.paper}.")
         if args.rules:
-            draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set, stone_mode=stone_mode)
+            draw_rules(c, pw, ph)
             c.showPage()
             print("  + rules page")
 
     elif args.pad:
         for i in range(args.pad):
-            draw_board_into_region(
-                c, args.size, (0, 0, pw, ph), margin_pt,
-                args.pen_paper, show_coords, args.theme, args.label_set, args.corner_dots,
-                draw_title=True, cell_coords=args.cell_coords,
-            )
+            draw_board_into((0, 0, pw, ph), args.size, draw_title=True,
+                            cell_coords=args.cell_coords)
             c.showPage()
             if theme_def["page_bg"]:
                 c.setFillColor(colors.HexColor(theme_def["page_bg"]))
                 c.rect(0, 0, pw, ph, fill=True, stroke=False)
-        print(f"Generated {args.pad}-sheet pad of {args.size}x{args.size} boards on {args.paper}.")
+        if is_havannah:
+            print(f"Generated {args.pad}-sheet pad of base-{args.size} Havannah boards on {args.paper}.")
+        elif is_trike:
+            print(f"Generated {args.pad}-sheet pad of side-{args.size} Trike boards on {args.paper}.")
+        else:
+            print(f"Generated {args.pad}-sheet pad of {args.size}x{args.size} boards on {args.paper}.")
         if args.rules:
-            draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set, stone_mode=stone_mode)
+            draw_rules(c, pw, ph)
             c.showPage()
             print("  + rules page")
 
@@ -731,24 +1542,33 @@ def _generate_multi(args, show_coords):
         title_color = "#FFFFFF" if args.theme == "dark" else "#1A1A1A"
         c.setFont("Helvetica-Bold", 14)
         c.setFillColor(colors.HexColor(title_color))
-        c.setTitle(f"Hex Board {args.size}x{args.size} ({n}-up)")
-        c.drawCentredString(pw / 2, ph - 12, f"{args.size}x{args.size}  \u00d7  {n} PER PAGE")
+        if is_havannah:
+            c.setTitle(f"Havannah Board base-{args.size} ({n}-up)")
+            c.drawCentredString(pw / 2, ph - 12, f"BASE-{args.size}  \u00d7  {n} PER PAGE")
+        elif is_trike:
+            c.setTitle(f"Trike Board side-{args.size} ({n}-up)")
+            c.drawCentredString(pw / 2, ph - 12, f"SIDE-{args.size}  \u00d7  {n} PER PAGE")
+        else:
+            c.setTitle(f"Hex Board {args.size}x{args.size} ({n}-up)")
+            c.drawCentredString(pw / 2, ph - 12, f"{args.size}x{args.size}  \u00d7  {n} PER PAGE")
 
         for i in range(n):
             r = i // cols
             cn = i % cols
             x = gutter + cn * (cell_w + gutter)
             y = gutter + r * (cell_h + gutter)
-            draw_board_into_region(
-                c, args.size, (x, y, cell_w, cell_h), margin_pt,
-                args.pen_paper, show_coords, args.theme, args.label_set, args.corner_dots,
-                draw_title=False, cell_coords=args.cell_coords,
-            )
+            draw_board_into((x, y, cell_w, cell_h), args.size, draw_title=False,
+                            cell_coords=args.cell_coords)
         c.showPage()
-        print(f"Generated 1-page {cols}x{rows} handout ({n} copies of {args.size}x{args.size}) on {args.paper}.")
+        if is_havannah:
+            print(f"Generated 1-page {cols}x{rows} handout ({n} copies of base-{args.size} Havannah) on {args.paper}.")
+        elif is_trike:
+            print(f"Generated 1-page {cols}x{rows} handout ({n} copies of side-{args.size} Trike) on {args.paper}.")
+        else:
+            print(f"Generated 1-page {cols}x{rows} handout ({n} copies of {args.size}x{args.size}) on {args.paper}.")
 
     if args.rules:
-        draw_rules_page(c, pw, ph, theme=args.theme, label_set=args.label_set, stone_mode=stone_mode)
+        draw_rules(c, pw, ph)
         c.showPage()
         print("  + rules page")
 
@@ -756,8 +1576,12 @@ def _generate_multi(args, show_coords):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate a printable Hex board PDF.")
-    parser.add_argument("size", type=int, help="Board size (e.g., 11 for 11x11)")
+    parser = argparse.ArgumentParser(description="Generate a printable Hex/Havannah board PDF.")
+    parser.add_argument("size", type=int, help="Board size (e.g., 11 for 11x11 Hex, or 10 for base-10 Havannah)")
+    parser.add_argument("--game", type=str, default="hex", choices=["hex", "havannah", "trike"],
+                        help="Which board game to render. hex (default) renders an N×N rhombus; "
+                             "havannah renders a base-N regular hexagon; trike renders a "
+                             "side-N triangular board. Size units differ per game — see README.")
     parser.add_argument("-o", "--output", type=str, default="hex_board.pdf", help="Output PDF path")
     parser.add_argument("-p", "--paper", type=str, default=None,
                         help=f"Paper size. Choices: {', '.join(PAPER_SIZES)}. "
@@ -813,9 +1637,27 @@ if __name__ == "__main__":
                             help="No margin: stones flush with hex walls. For testing only.")
     args = parser.parse_args()
 
+    # Per-game configuration: extent function used for sizing.
+    if args.game == "havannah":
+        game_extent_fn = havannah_extent_r_units
+        game_label = f"HAVANNAH BASE-{args.size}"
+    elif args.game == "trike":
+        game_extent_fn = trike_extent_r_units
+        game_label = f"TRIKE SIDE-{args.size}"
+    else:
+        game_extent_fn = grid_extent_r_units
+        game_label = f"HEX {args.size}x{args.size}"
+
     if args.size < 2:
         print("Error: Board size must be at least 2.", file=sys.stderr)
         sys.exit(1)
+
+    # Warn / reject mixed flags.
+    if args.game in ("havannah", "trike") and args.label_set != "wb":
+        flag_game = "Havannah" if args.game == "havannah" else "Trike"
+        print(f"Warning: --label-set is ignored for {flag_game} (no side bands).", file=sys.stderr)
+    if args.game == "trike" and args.corner_dots:
+        print("Warning: --corner-dots is ignored for Trike (no marked corners).", file=sys.stderr)
 
     margin_pt = args.margin if args.margin is not None else None
 
@@ -829,17 +1671,18 @@ if __name__ == "__main__":
         else:
             margin_for_calc = margin_pt if margin_pt is not None else min(DEFAULT_MARGINS_PT.values())
             picked, orient, ratio = auto_pick_paper(
-                args.size, args.stone_size, margin_for_calc, mode=args.mode
+                args.size, args.stone_size, margin_for_calc, mode=args.mode,
+                extent_fn=game_extent_fn,
             )
             if picked is None:
-                print(f"Error: no paper size is large enough for {args.size}x{args.size} "
+                print(f"Error: no paper size is large enough for {game_label} "
                       f"board with {args.stone_size} mm stones in {args.mode} mode. "
                       f"Try --makeitwork or --unsafe, or a smaller board size.",
                       file=sys.stderr)
                 sys.exit(2)
             args.paper = picked
             print(f"Auto-selected paper: {picked} ({orient}) for "
-                  f"{args.size}x{args.size} board with {args.stone_size} mm stones "
+                  f"{game_label} board with {args.stone_size} mm stones "
                   f"[mode={args.mode}, ratio={ratio:.0%}].")
 
     if args.paper not in PAPER_SIZES:
@@ -850,7 +1693,8 @@ if __name__ == "__main__":
     if args.stone_size is not None and args.mode == "safe":
         pw, ph = pick_page_size(args.paper, args.size)
         margin_for_check = margin_pt if margin_pt is not None else DEFAULT_MARGINS_PT[args.paper]
-        r_check, _, _ = compute_r(pw, ph, margin_for_check, args.size)
+        r_check, _, _ = compute_r(pw, ph, margin_for_check, args.size,
+                              extent_fn=game_extent_fn)
         flat_mm = SQRT3 * r_check / PT_PER_INCH * MM_PER_INCH
         if args.stone_size / flat_mm > FIT_RATIOS["safe"]:
             print(f"Error: stone {args.stone_size} mm does not fit comfortably on {args.paper} "
@@ -870,11 +1714,21 @@ if __name__ == "__main__":
             print("Error: --format svg is single-page only; not compatible with "
                   "--n-up, --pad, --sizes, or --rules.", file=sys.stderr)
             sys.exit(2)
-        write_svg(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
-                  mode=args.mode, pen_paper=args.pen_paper, coords=show_coords,
-                  theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots,
-                  stone_mode=stone_mode)
-        print(f"Generated {args.size}x{args.size} SVG: {args.output}")
+        if args.game == "havannah":
+            write_havannah_svg(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
+                               mode=args.mode, pen_paper=args.pen_paper, coords=show_coords,
+                               theme=args.theme, corner_dots=args.corner_dots)
+            print(f"Generated Havannah base-{args.size} SVG: {args.output}")
+        elif args.game == "trike":
+            write_trike_svg(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
+                            mode=args.mode, pen_paper=args.pen_paper, coords=show_coords,
+                            theme=args.theme)
+            print(f"Generated Trike side-{args.size} SVG: {args.output}")
+        else:
+            write_svg(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
+                      mode=args.mode, pen_paper=args.pen_paper, coords=show_coords,
+                      theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots)
+            print(f"Generated {args.size}x{args.size} SVG: {args.output}")
         sys.exit(0)
 
     # Multi-board dispatch: --sizes, --pad, or --n-up > 1 take over.
@@ -882,16 +1736,29 @@ if __name__ == "__main__":
         _generate_multi(args, show_coords)
         sys.exit(0)
 
-    r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
-                      pen_paper=args.pen_paper, coords=show_coords, mode=args.mode,
-                      theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots,
-                      rules=args.rules, cell_coords=args.cell_coords, stone_mode=stone_mode)
+    if args.game == "havannah":
+        r = draw_havannah_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
+                                pen_paper=args.pen_paper, coords=show_coords, mode=args.mode,
+                                theme=args.theme, corner_dots=args.corner_dots,
+                                rules=args.rules, cell_coords=args.cell_coords,
+                                stone_mode=stone_mode)
+    elif args.game == "trike":
+        r = draw_trike_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
+                             pen_paper=args.pen_paper, coords=show_coords, mode=args.mode,
+                             theme=args.theme,
+                             rules=args.rules, cell_coords=args.cell_coords,
+                             stone_mode=stone_mode)
+    else:
+        r = draw_hex_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
+                          pen_paper=args.pen_paper, coords=show_coords, mode=args.mode,
+                          theme=args.theme, label_set=args.label_set, corner_dots=args.corner_dots,
+                          rules=args.rules, cell_coords=args.cell_coords, stone_mode=stone_mode)
 
     # Diagnostics.
     flat_mm, _ = hex_fits_stone(r, args.stone_size or 0)
     pw, ph = pick_page_size(args.paper, args.size)
     orient = "landscape" if pw > ph else "portrait"
-    print(f"Generated {args.size}x{args.size} board on {args.paper} ({orient}).")
+    print(f"Generated {game_label} board on {args.paper} ({orient}).")
     if args.stone_size:
         ratio = args.stone_size / flat_mm
         if ratio <= 0.70:

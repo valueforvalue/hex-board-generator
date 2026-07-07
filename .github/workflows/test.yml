@@ -34,6 +34,24 @@ jobs:
           - "python generate_board.py 11 --rules"
           # SVG export
           - "python generate_board.py 11 --format svg"
+          # Havannah (--game havannah)
+          - "python generate_board.py 8 --game havannah"
+          - "python generate_board.py 8 --game havannah --theme dark --corner-dots"
+          - "python generate_board.py 10 --game havannah --pen-paper --cell-coords"
+          - "python generate_board.py 8 --game havannah --rules"
+          - "python generate_board.py 8 --game havannah --stone-size 19"
+          - "python generate_board.py 8 --game havannah --n-up 4"
+          - "python generate_board.py 8 --game havannah --sizes 8,10"
+          - "python generate_board.py 8 --game havannah --format svg"
+          # Trike (--game trike)
+          - "python generate_board.py 7 --game trike"
+          - "python generate_board.py 13 --game trike --theme dark"
+          - "python generate_board.py 10 --game trike --pen-paper --cell-coords"
+          - "python generate_board.py 7 --game trike --rules"
+          - "python generate_board.py 13 --game trike --stone-size 19"
+          - "python generate_board.py 7 --game trike --n-up 4"
+          - "python generate_board.py 7 --game trike --sizes 7,13"
+          - "python generate_board.py 7 --game trike --format svg"
 
     steps:
       - uses: actions/checkout@v4
@@ -71,3 +89,6 @@ jobs:
           assert c.rstrip().endswith('</svg>')
           print('OK: SVG well-formed')
           "
+      - name: Run geometry unit tests
+        run: |
+          python -m unittest discover -s tests -v

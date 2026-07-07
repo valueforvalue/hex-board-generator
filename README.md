@@ -3,16 +3,20 @@
 [![Test](https://github.com/valueforvalue/hex-board-generator/actions/workflows/test.yml/badge.svg)](https://github.com/valueforvalue/hex-board-generator/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Generate printable HEX board PDFs sized for Go stones, paper-and-pencil play, or any custom layout.
+Generate printable **Hex**, **Havannah**, and **Trike** board PDFs sized for Go stones, paper-and-pencil play, or any custom layout.
 
-11×11 is the classic Hex board size. This generator also supports 7×7, 9×9, 13×13, 14×14, 19×19, and any other N×N.
+11×11 is the classic Hex board size. This generator also supports 7×7, 9×9, 13×13, 14×14, 19×19, and any other N×N. For Havannah, base-8 (169 cells) and base-10 (271 cells) are the standard sizes. For Trike, side-7 (28 cells) through side-19 (190 cells) are supported, with 13–15 standard for serious play.
 
 ## Quick start
 
 ```bash
-python generate_board.py 11                          # 11x11 on Letter (default)
+python generate_board.py 11                          # 11x11 Hex on Letter (default)
 python generate_board.py 11 --pen-paper              # paper & pencil mode
 python generate_board.py 11 --stone-size 19          # auto-pick paper for 19mm stones
+python generate_board.py 8 --game havannah           # base-8 Havannah
+python generate_board.py 10 --game havannah --rules  # base-10 with rules page
+python generate_board.py 7 --game trike              # side-7 Trike
+python generate_board.py 13 --game trike --rules     # side-13 Trike with rules
 ```
 
 ## Board sizing notes
@@ -81,6 +85,77 @@ Auto-enabled when `--stone-size` is given. Tweaks the footer and rules page for 
 ### Rules sheet (`--rules`)
 
 Append a one-page Hex rules summary at the end of the PDF. Sections cover Players, Setup, Goal, How to play, Win condition, the swap rule, and coordinate notation. Adapts to the chosen `--theme` and `--label-set`.
+
+## Havannah
+
+Havannah is a connection game on a regular hexagonal board (no side bands).
+Add `--game havannah` to render a Havannah board instead of Hex. Size is the
+**base** — the number of cells along each of the six edges:
+
+| Base | Total cells | Standard for |
+|------|-------------|--------------|
+| 8    | 169         | Beginners (Ravensburger) |
+| 10   | 271         | Standard / Computer Olympiad |
+
+Cells are addressed in **axial (cube) coordinates** `(q, r)` with `s = −q − r`.
+The center cell is `(0, 0)` and the six corners sit at `(±(N−1), 0)`, `(±(N−1), ∓(N−1))`, `(0, ±(N−1))`.
+The six Havannah win conditions are diagrammed on the optional rules page (see `--rules`):
+
+- **Ring** — a closed loop around one or more cells
+- **Bridge** — connect any two of the six corner cells
+- **Fork** — connect any three of the six edges (corners are not part of an edge)
+
+```bash
+python generate_board.py 10 --game havannah                       # base-10 Havannah
+python generate_board.py 10 --game havannah --pen-paper            # paper & pencil mode
+python generate_board.py 8 --game havannah --theme dark           # dark theme
+python generate_board.py 8 --game havannah --stone-size 19        # auto-pick paper
+python generate_board.py 8 --game havannah --rules                # + rules page
+python generate_board.py 8 --game havannah --n-up 4               # 4-up handout
+python generate_board.py 8 --game havannah --format svg           # vector SVG
+```
+
+### Flags that differ for Havannah
+
+- `--label-set` is ignored (no side bands). A warning is printed if set.
+- `--corner-dots` is honored as for Hex (opt-in).
+- `--cell-coords` renders the axial `(q, r)` label inside each cell when cells are large enough.
+- `--no-coords` suppresses all coordinate labels.
+- All other flags (`--theme`, `--paper`, `--stone-size`, `--pen-paper`, `--n-up`, `--pad`, `--sizes`, `--format`, `--rules`) work identically.
+
+## Trike
+
+Trike is a combinatorial abstract on a triangular hex-tessellated board, point-up.
+Add `--game trike` to render a Trike board instead of Hex or Havannah. Size is the
+**side length** — the number of hex cells along each edge of the triangle:
+
+| Side | Total cells | Standard for |
+|------|-------------|--------------|
+| 7–10 | 28–55       | Learning |
+| 13–15 | 91–120     | Standard competitive play |
+| 19   | 190         | Largest tournament size |
+
+Cells are addressed in **axial coordinates** `(q, r)` with the in-bounds
+predicate `q ≥ 0 and r ≥ 0 and q + r < N`. The three vertex cells are
+`(0, 0)`, `(N−1, 0)`, and `(0, N−1)`. The rules page (`--rules`) describes
+the pawn-movement, scoring, and pie rule mechanics.
+
+```bash
+python generate_board.py 7 --game trike                  # side-7 Trike
+python generate_board.py 13 --game trike --rules         # side-13 + rules page
+python generate_board.py 13 --game trike --theme dark    # dark theme
+python generate_board.py 13 --game trike --stone-size 19 # auto-pick paper
+python generate_board.py 7 --game trike --n-up 4         # 4-up handout
+python generate_board.py 7 --game trike --format svg     # vector SVG
+```
+
+### Flags that differ for Trike
+
+- `--label-set` is ignored (no side bands). A warning is printed if set.
+- `--corner-dots` is ignored (no marked corners). A warning is printed if set.
+- `--cell-coords` renders the axial `(q, r)` label inside each cell when cells are large enough.
+- `--no-coords` suppresses all coordinate labels.
+- All other flags (`--theme`, `--paper`, `--stone-size`, `--pen-paper`, `--n-up`, `--pad`, `--sizes`, `--format`, `--rules`) work identically.
 
 ## Gallery
 
@@ -177,23 +252,25 @@ Appends a one-page Hex rules summary at the end of the PDF.
 ```
 python generate_board.py <size> [options]
 
-  size                Board size (e.g. 11 for 11x11)
+  size                Board size (e.g. 11 for 11x11 Hex, 10 for base-10 Havannah, 13 for side-13 Trike)
+  --game NAME         hex (default), havannah, or trike
   -o, --output        Output PDF path (default: hex_board.pdf)
   -p, --paper         letter, legal, tabloid, a3, a4, ansi-b (auto-detected with --stone-size)
   --stone-size MM     Stone diameter in mm; auto-picks paper if -p omitted
   --margin PTS        Override page margin in points (1 inch = 72 pt)
-  --pen-paper         Paper-and-pencil mode: thicker strokes, Go-style coords inside cells, footer
+  --pen-paper         Paper-and-pencil mode: thicker strokes, coords inside cells, footer
   --coords            Show coordinate labels (inside each cell when legible)
   --no-coords         Suppress coordinate labels
   --cell-coords       Alias for --coords (inside each cell)
   --stone-mode        Adapt instructions for stone play (auto-enabled by --stone-size)
   --theme NAME        classic, light, dark, wood
-  --label-set NAME    wb (White/Black) or rb (Red/Blue)
-  --corner-dots       Mark the four corner hexes
+  --label-set NAME    wb (White/Black) or rb (Red/Blue) — Hex only; ignored for Havannah/Trike
+  --corner-dots       Mark corner hexes (Hex opt-in, Havannah opt-in, ignored for Trike)
   --n-up N            Pack N boards per page
   --pad N             Generate N copies (one per page)
   --sizes LIST        Comma-separated sizes, one page each
-  --rules             Append a Hex rules summary page
+  --rules             Append a rules summary page (game-aware: Hex / Havannah / Trike)
+  --format FMT        pdf (default) or svg
   --safemode          Default. Stone ≤ 70% hex flat-to-flat.
   --makeitwork        Stone ≤ 85%. Shrinks margin to 4pt.
   --unsafe            Stone ≤ 100%. Flush fit.
@@ -206,6 +283,25 @@ rediscovered by John Nash in the late 1940s. Players alternate placing
 stones on hex cells; the first to form a connected chain linking their
 two assigned sides wins. See [Wikipedia](https://en.wikipedia.org/wiki/Hex_(board_game))
 for the full rules.
+
+## About Havannah
+
+Havannah is a two-player connection game invented by Christian Freeling in 1981.
+Played on a regular hexagonal board (no side bands), the goal is to complete any
+one of three structures: a **ring** (closed loop), a **bridge** (connect two
+corner cells), or a **fork** (connect three edges). The pie rule is used to
+balance the first-move advantage. See
+[Wikipedia](https://en.wikipedia.org/wiki/Havannah_(board_game)) for the full rules.
+
+## About Trike
+
+Trike is a two-player combinatorial abstract designed by Alek Erickson in 2020.
+Played on a triangular hex-tessellated board, players take turns moving a
+single shared pawn any distance in a straight line, leaving a checker of their
+color on the destination. The game ends when the pawn is trapped; each player
+then scores 1 point per checker adjacent to (or under) the pawn, and the higher
+score wins. The pie rule is used to balance the first-move advantage. See
+[Trike on BoardGameGeek](https://boardgamegeek.com/boardgame/307379/trike) for the full rules.
 
 ## Requirements
 
