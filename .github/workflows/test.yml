@@ -52,6 +52,19 @@ jobs:
           - "python generate_board.py 7 --game trike --n-up 4"
           - "python generate_board.py 7 --game trike --sizes 7,13"
           - "python generate_board.py 7 --game trike --format svg"
+          # Hex variants (--variant rex / yavalath, and --game aliases)
+          - "python generate_board.py 11 --variant rex --rules"
+          - "python generate_board.py 9  --variant rex --n-up 4"
+          - "python generate_board.py 11 --game rex --sizes 9,11"
+          - "python generate_board.py 5  --variant yavalath --rules"
+          - "python generate_board.py 5  --variant yavalath --pen-paper"
+          - "python generate_board.py 5  --game yavalath --n-up 4"
+          - "python generate_board.py 5  --variant yavalath --theme dark"
+          - "python generate_board.py 5  --variant yavalath --format svg"
+          # Default sizes (no size arg): regression for size-defaulting
+          - "python generate_board.py --game hex"
+          - "python generate_board.py --game rex"
+          - "python generate_board.py --game yavalath"
 
     steps:
       - uses: actions/checkout@v4
@@ -70,7 +83,7 @@ jobs:
           test -f /tmp/out.pdf || test -f /tmp/out.svg
           echo "OK: produced output"
       - name: Verify PDF is valid (if applicable)
-        if: matrix.command != 'python generate_board.py 11 --format svg'
+        if: "! contains(matrix.command, '--format svg')"
         run: |
           python -c "
           import fitz
@@ -80,7 +93,7 @@ jobs:
           d.close()
           "
       - name: Verify SVG is valid
-        if: matrix.command == 'python generate_board.py 11 --format svg'
+        if: contains(matrix.command, '--format svg')
         run: |
           python -c "
           with open('/tmp/out.svg') as f: c = f.read()

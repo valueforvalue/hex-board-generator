@@ -3,9 +3,9 @@
 [![Test](https://github.com/valueforvalue/hex-board-generator/actions/workflows/test.yml/badge.svg)](https://github.com/valueforvalue/hex-board-generator/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Generate printable **Hex**, **Havannah**, and **Trike** board PDFs sized for Go stones, paper-and-pencil play, or any custom layout.
+Generate printable **Hex**, **Rex**, **Yavalath**, **Havannah**, and **Trike** board PDFs sized for Go stones, paper-and-pencil play, or any custom layout.
 
-11×11 is the classic Hex board size. This generator also supports 7×7, 9×9, 13×13, 14×14, 19×19, and any other N×N. For Havannah, base-8 (169 cells) and base-10 (271 cells) are the standard sizes. For Trike, side-7 (28 cells) through side-19 (190 cells) are supported, with 13–15 standard for serious play.
+11×11 is the classic Hex board size. This generator also supports 7×7, 9×9, 13×13, 14×14, 19×19, and any other N×N — the same hexhex-N geometry covers both Hex and the misère variant Rex. For Yavalath, hexhex-5 (61 cells) is the standard published size. For Havannah, base-8 (169 cells) and base-10 (271 cells) are the standard sizes. For Trike, side-7 (28 cells) through side-19 (190 cells) are supported, with 13–15 standard for serious play.
 
 ## Quick start
 
@@ -93,7 +93,7 @@ Auto-enabled when `--stone-size` is given. Tweaks the footer and rules page for 
 
 ### Rules sheet (`--rules`)
 
-Append a one-page Hex rules summary at the end of the PDF. Sections cover Players, Setup, Goal, How to play, Win condition, the swap rule, and coordinate notation. Adapts to the chosen `--theme` and `--label-set`.
+Append a one-page rules summary at the end of the PDF. Content adapts to the selected `--game/--variant`: Hex covers Players, Setup, Goal, How to play, Win condition, the swap rule, and coordinate notation; Havannah and Trike cover their own win conditions and notation; Rex covers the misère flip; Yavalath covers the 4-wins / 3-loses rule, optional swap rule, and Pentalath bonus. Adapts to the chosen `--theme` and `--label-set`.
 
 ## Havannah
 
@@ -310,7 +310,7 @@ Tabloid 11×17 fits an 11×11 board with 19mm stones at 77% ratio (tight, but pl
 python generate_board.py 11 --rules
 ```
 
-Appends a one-page Hex rules summary at the end of the PDF.
+Appends a one-page rules summary at the end of the PDF. Content is chosen from the selected `--game`/`--variant`.
 
 ![Rules page](docs/gallery/09_rules.png)
 
@@ -332,7 +332,7 @@ python generate_board.py <size> [options]
   --cell-coords       Alias for --coords (inside each cell)
   --stone-mode        Adapt instructions for stone play (auto-enabled by --stone-size)
   --theme NAME        classic, light, dark, wood
-  --label-set NAME    wb (White/Black) or rb (Red/Blue) — Hex only; ignored for Havannah/Trike
+  --label-set NAME    wb (White/Black) or rb (Red/Blue) — Hex only (ignored for Havannah, Trike, Yavalath)
   --corner-dots       Mark corner hexes (Hex opt-in, Havannah opt-in, ignored for Trike/Yavalath)
   --variant NAME      rex (misère Hex) or yavalath; only valid with --game hex
   --n-up N            Pack N boards per page
@@ -402,6 +402,7 @@ score wins. The pie rule is used to balance the first-move advantage. See
 ## Requirements
 
 - Python 3.8+
-- reportlab
+- `reportlab` (rendering)
+- `pymupdf` *(optional, used by CI to validate PDFs — not needed for local use)*
 
-Install: `pip install reportlab`
+Install runtime dependencies: `pip install reportlab`. To run the CI smoke tests locally: `pip install reportlab pymupdf`.
