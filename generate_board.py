@@ -986,22 +986,22 @@ def _draw_rex_win_diagram(c, region, theme="classic"):
 
 
 def _draw_yavalath_win_diagram(c, region, theme="classic"):
-    """Yavalath: White wins with 4-in-a-row on hexhex-5. Highlight the 4-chain.
+    """Yavalath: White wins with 4-in-a-row on a hexagon board (base-5).
 
-    Black stones are placed so that no Black line reaches exactly 3 —
-    a 3-in-a-row would lose immediately, making this position impossible.
+    Uses Havannah axial coordinates. White has a 4-in-a-row diagonal;
+    Black stones are placed so no Black line reaches exactly 3.
     """
     stones = {
-        (0, 2): "W", (1, 2): "W", (2, 2): "W", (3, 2): "W",
-        (0, 0): "B", (0, 4): "B",
-        (1, 1): "B", (1, 3): "B",
-        (2, 0): "B",
-        (3, 1): "B", (3, 3): "B",
-        (4, 0): "B", (4, 4): "B",
+        # White 4-in-a-row diagonal: (2,-2) -> (1,-1) -> (0,0) -> (-1,1)
+        (2, -2): "W", (1, -1): "W", (0, 0): "W", (-1, 1): "W",
+        # Black filler — verified no 3-in-a-row
+        (-4, 2): "B", (-3, -1): "B", (-3, 1): "B", (-2, 3): "B",
+        (-1, -3): "B", (-1, 4): "B", (0, 1): "B", (1, -3): "B",
+        (1, -2): "B", (2, -4): "B", (3, -4): "B", (3, 1): "B",
     }
-    winning_path = [(0, 2), (1, 2), (2, 2), (3, 2)]
-    return _draw_hex_diagram(c, region, board_size=5, stones=stones,
-                             winning_path=winning_path, theme=theme)
+    winning_path = [(2, -2), (1, -1), (0, 0), (-1, 1)]
+    return _draw_havannah_diagram(c, region, base=5, stones_axial=stones,
+                                  winning_path_axial=winning_path, theme=theme)
 
 
 def _draw_havannah_cell(c, cx, cy, r, fill_color, stroke_color):
@@ -1538,9 +1538,9 @@ def _draw_yavalath_rules_page(c, page_w, page_h, theme="classic", stone_mode=Fal
 
     section("Setup")
     if stone_mode:
-        body("Use the hexhex-N board on the previous page. Each player needs 30 stones of their color (about 60% of the board fill the rest). The board has no side bands \u2014 cells only.")
+        body("Use the hexagon board on the previous page. Each player needs 30 stones of their color (about half the 61 cells). The board is a regular hexagon — no side bands, cells only.")
     else:
-        body("Use the hexhex-N board on the previous page. Each player needs 30 stones of their color or markers in two symbols. The board has no side bands \u2014 cells only.")
+        body("Use the hexagon board on the previous page. Each player needs 30 markers in two colors. The board is a regular hexagon — no side bands, cells only.")
 
     section("Goal")
     body("Be the first to place 4 of your stones in an unbroken straight line in any direction. BUT if you ever place 3 in a row (and only 3, not 4), you LOSE.")
@@ -1559,7 +1559,7 @@ def _draw_yavalath_rules_page(c, page_w, page_h, theme="classic", stone_mode=Fal
     body("White plays first. On White's second turn, Black may take White's opening stone and switch colors. This balances the first-player advantage. The same set also plays Pentalath (5-in-a-row with Go-style captures) and a three-player variant.")
 
     section("Coordinate notation")
-    body("Columns use standard Go notation: a\u2013h, then j\u2013z (the letter i is skipped, per Go convention). Rows are numbered 1\u2013N from bottom to top. A cell's address is column+row, e.g. \u201cf7\u201d refers to column f, row 7.")
+    body("Cells use axial coordinates (q, r). The center cell is (0, 0). The six corner cells are at distance 4 from center. Notation: q,r (e.g. \u201c2,-1\u201d).")
 
     c.setFont("Helvetica-Oblique", 11)
     c.setFillColor(colors.HexColor(subtle_color))
@@ -1581,7 +1581,8 @@ def _havannah_cell_color(theme_def, q, r):
 
 def draw_havannah_board_into_region(c, base, region, margin_pt,
                                     pen_paper, coords, theme, corner_dots,
-                                    draw_title=True, cell_coords=False):
+                                    draw_title=True, cell_coords=False,
+                                    game_label="HAVANNAH"):
     """Draw a base-N Havannah board into a rectangular region.
 
     `region` = (x, y, w, h): bottom-left corner plus size of the region.
@@ -1606,9 +1607,9 @@ def draw_havannah_board_into_region(c, base, region, margin_pt,
     offset_y = center_y
 
     if draw_title:
-        title = (f"HAVANNAH BOARD \u2014 PAPER & PENCIL (BASE-{base})"
+        title = (f"{game_label} BOARD \u2014 PAPER & PENCIL (BASE-{base})"
                  if pen_paper else
-                 f"HAVANNAH BOARD (BASE-{base})")
+                 f"{game_label} BOARD (BASE-{base})")
         title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
         c.setFont("Helvetica-Bold", 12)
         c.setFillColor(colors.HexColor(title_color))
@@ -1652,7 +1653,7 @@ def draw_havannah_board_into_region(c, base, region, margin_pt,
 
 def write_havannah_svg(output_filename, base, paper="letter", margin_pt=None, mode="safe",
                        pen_paper=False, coords=True, theme="classic",
-                       corner_dots=False, rules=False):
+                       corner_dots=False, rules=False, game_label="HAVANNAH"):
     """Render a Havannah board as SVG (vector, web-friendly). Single page only."""
     page_w, page_h = pick_page_size(paper, base)
     if margin_pt is None:
@@ -1682,8 +1683,8 @@ def write_havannah_svg(output_filename, base, paper="letter", margin_pt=None, mo
            f'<svg xmlns="http://www.w3.org/2000/svg" width="{page_w:.0f}" height="{page_h:.0f}" viewBox="0 0 {page_w:.0f} {page_h:.0f}">',
            f'<rect width="{page_w:.0f}" height="{page_h:.0f}" fill="{bg}"/>']
 
-    title = (f"HAVANNAH BOARD \u2014 PAPER & PENCIL (BASE-{base})"
-             if pen_paper else f"HAVANNAH BOARD (BASE-{base})")
+    title = (f"{game_label} BOARD \u2014 PAPER & PENCIL (BASE-{base})"
+             if pen_paper else f"{game_label} BOARD (BASE-{base})")
     title_y = page_h - max(14, margin_pt / 2)
     out.append(
         f'<text x="{board_cx:.2f}" y="{title_y:.2f}" font-family="Helvetica,Arial,sans-serif" '
@@ -1738,7 +1739,8 @@ def write_havannah_svg(output_filename, base, paper="letter", margin_pt=None, mo
 def draw_havannah_board(output_filename, base, paper="letter", margin_pt=None,
                         pen_paper=False, coords=True, mode="safe",
                         theme="classic", corner_dots=False, rules=False,
-                        cell_coords=False, stone_mode=False):
+                        cell_coords=False, stone_mode=False,
+                        game_label="HAVANNAH"):
     page_w, page_h = pick_page_size(paper, base)
     if margin_pt is None:
         if mode in ("makeitwork", "unsafe"):
@@ -1755,9 +1757,9 @@ def draw_havannah_board(output_filename, base, paper="letter", margin_pt=None,
         c.setFillColor(colors.HexColor(theme_def["page_bg"]))
         c.rect(0, 0, page_w, page_h, fill=True, stroke=False)
 
-    title = (f"HAVANNAH BOARD \u2014 PAPER & PENCIL (BASE-{base})"
+    title = (f"{game_label} BOARD \u2014 PAPER & PENCIL (BASE-{base})"
              if pen_paper else
-             f"HAVANNAH BOARD (BASE-{base})")
+             f"{game_label} BOARD (BASE-{base})")
     c.setTitle(title)
     title_color = "#FFFFFF" if theme == "dark" else "#1A1A1A"
     c.setFont("Helvetica-Bold", 16)
@@ -1774,6 +1776,7 @@ def draw_havannah_board(output_filename, base, paper="letter", margin_pt=None,
         c, base, board_region, margin_pt,
         pen_paper, coords, theme, corner_dots,
         draw_title=False, cell_coords=cell_coords,
+        game_label=game_label,
     )
 
     if pen_paper:
@@ -2238,8 +2241,9 @@ def _generate_multi(args, show_coords):
         4 if args.mode in ("makeitwork", "unsafe") else DEFAULT_MARGINS_PT[args.paper]
     )
 
-    is_havannah = args.game == "havannah"
+    is_havannah = args.game == "havannah" or args.variant == "yavalath"
     is_trike = args.game == "trike"
+    is_yavalath = args.variant == "yavalath"
 
     def draw_board_into(region, size, draw_title, cell_coords):
         if is_havannah:
@@ -2247,6 +2251,7 @@ def _generate_multi(args, show_coords):
                 c, size, region, margin_pt,
                 args.pen_paper, show_coords, args.theme, args.corner_dots,
                 draw_title=draw_title, cell_coords=cell_coords,
+                game_label="YAVALATH" if is_yavalath else "HAVANNAH",
             )
         if is_trike:
             return draw_trike_board_into_region(
@@ -2261,9 +2266,12 @@ def _generate_multi(args, show_coords):
         )
 
     def draw_rules(c, pw, ph):
-        if is_havannah:
+        if is_havannah and not is_yavalath:
             return draw_havannah_rules_page(c, pw, ph, theme=args.theme,
                                             stone_mode=args.stone_mode or args.stone_size is not None)
+        if is_yavalath:
+            return _draw_yavalath_rules_page(c, pw, ph, theme=args.theme,
+                                             stone_mode=args.stone_mode or args.stone_size is not None)
         if is_trike:
             return draw_trike_rules_page(c, pw, ph, theme=args.theme,
                                          stone_mode=args.stone_mode or args.stone_size is not None)
@@ -2280,7 +2288,11 @@ def _generate_multi(args, show_coords):
         title_color = "#FFFFFF" if args.theme == "dark" else "#1A1A1A"
         c.setFont("Helvetica-Bold", 16)
         c.setFillColor(colors.HexColor(title_color))
-        if is_havannah:
+        if is_yavalath:
+            ref_label = "YAVALATH REFERENCE  "
+            sz_label = lambda s: f"hexhex-{s}"
+            doc_title = "Yavalath Reference"
+        elif is_havannah:
             ref_label = "HAVANNAH REFERENCE  "
             sz_label = lambda s: f"base-{s}"
             doc_title = "Havannah Reference"
@@ -2288,10 +2300,6 @@ def _generate_multi(args, show_coords):
             ref_label = "TRIKE REFERENCE  "
             sz_label = lambda s: f"side-{s}"
             doc_title = "Trike Reference"
-        elif args.variant == "yavalath":
-            ref_label = "YAVALATH REFERENCE  "
-            sz_label = lambda s: f"hexhex-{s}"
-            doc_title = "Yavalath Reference"
         elif args.variant == "rex":
             ref_label = "REX REFERENCE  "
             sz_label = lambda s: f"hexhex-{s}"
@@ -2324,7 +2332,9 @@ def _generate_multi(args, show_coords):
             if theme_def["page_bg"]:
                 c.setFillColor(colors.HexColor(theme_def["page_bg"]))
                 c.rect(0, 0, pw, ph, fill=True, stroke=False)
-        if is_havannah:
+        if is_yavalath:
+            print(f"Generated {args.pad}-sheet pad of hexhex-{args.size} Yavalath boards on {args.paper}.")
+        elif is_havannah:
             print(f"Generated {args.pad}-sheet pad of base-{args.size} Havannah boards on {args.paper}.")
         elif is_trike:
             print(f"Generated {args.pad}-sheet pad of side-{args.size} Trike boards on {args.paper}.")
@@ -2349,7 +2359,10 @@ def _generate_multi(args, show_coords):
         title_color = "#FFFFFF" if args.theme == "dark" else "#1A1A1A"
         c.setFont("Helvetica-Bold", 14)
         c.setFillColor(colors.HexColor(title_color))
-        if is_havannah:
+        if is_yavalath:
+            c.setTitle(f"Yavalath Board hexhex-{args.size} ({n}-up)")
+            c.drawCentredString(pw / 2, ph - 12, f"HEXHEX-{args.size}  \u00d7  {n} PER PAGE")
+        elif is_havannah:
             c.setTitle(f"Havannah Board base-{args.size} ({n}-up)")
             c.drawCentredString(pw / 2, ph - 12, f"BASE-{args.size}  \u00d7  {n} PER PAGE")
         elif is_trike:
@@ -2437,9 +2450,12 @@ def validate_and_normalize(args):
         return args, None, None, None, False, False, warnings, error
 
     # Pick the geometry helper + display label.
-    if args.game == "havannah":
+    if args.game == "havannah" or args.variant == "yavalath":
         game_extent_fn = havannah_extent_r_units
-        game_label = f"HAVANNAH BASE-{args.size}"
+        if args.variant == "yavalath":
+            game_label = f"YAVALATH HEXHEX-{args.size}"
+        else:
+            game_label = f"HAVANNAH BASE-{args.size}"
     elif args.game == "trike":
         game_extent_fn = trike_extent_r_units
         game_label = f"TRIKE SIDE-{args.size}"
@@ -2619,11 +2635,15 @@ if __name__ == "__main__":
             print("Error: --format svg is single-page only; not compatible with "
                   "--n-up, --pad, --sizes, or --rules.", file=sys.stderr)
             sys.exit(2)
-        if args.game == "havannah":
+        if args.game == "havannah" or args.variant == "yavalath":
             write_havannah_svg(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
                                mode=args.mode, pen_paper=args.pen_paper, coords=show_coords,
-                               theme=args.theme, corner_dots=args.corner_dots)
-            print(f"Generated Havannah base-{args.size} SVG: {args.output}")
+                               theme=args.theme, corner_dots=args.corner_dots,
+                               game_label="YAVALATH" if args.variant == "yavalath" else "HAVANNAH")
+            if args.variant == "yavalath":
+                print(f"Generated Yavalath hexhex-{args.size} SVG: {args.output}")
+            else:
+                print(f"Generated Havannah base-{args.size} SVG: {args.output}")
         elif args.game == "trike":
             write_trike_svg(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
                             mode=args.mode, pen_paper=args.pen_paper, coords=show_coords,
@@ -2647,12 +2667,13 @@ if __name__ == "__main__":
         _generate_multi(args, show_coords)
         sys.exit(0)
 
-    if args.game == "havannah":
+    if args.game == "havannah" or args.variant == "yavalath":
         r = draw_havannah_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
                                 pen_paper=args.pen_paper, coords=show_coords, mode=args.mode,
                                 theme=args.theme, corner_dots=args.corner_dots,
                                 rules=args.rules, cell_coords=args.cell_coords,
-                                stone_mode=stone_mode)
+                                stone_mode=stone_mode,
+                                game_label="YAVALATH" if args.variant == "yavalath" else "HAVANNAH")
     elif args.game == "trike":
         r = draw_trike_board(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
                              pen_paper=args.pen_paper, coords=show_coords, mode=args.mode,
