@@ -93,7 +93,7 @@ Auto-enabled when `--stone-size` is given. Tweaks the footer and rules page for 
 
 ### Rules sheet (`--rules`)
 
-Append a one-page rules summary at the end of the PDF. Content adapts to the selected `--game/--variant`: Hex covers Players, Setup, Goal, How to play, Win condition, the swap rule, and coordinate notation; Havannah and Trike cover their own win conditions and notation; Rex covers the misère flip; Yavalath covers the 4-wins / 3-loses rule, optional swap rule, and Pentalath bonus. Adapts to the chosen `--theme` and `--label-set`.
+Append a one-page rules summary at the end of the PDF. Content adapts to the selected `--game/--variant`: Hex covers Players, Setup, Goal, How to play, Win condition (with a small winning-position diagram showing White connecting top-to-bottom), the swap rule, and coordinate notation; Rex uses the same diagram to show White's forced loss; Yavalath shows a 4-in-a-row winning line; Havannah diagrams all three win conditions (ring, bridge, fork) in a row; Trike shows a trapped pawn with adjacent scoring cells. Adapts to the chosen `--theme` and `--label-set`.
 
 ## Havannah
 
@@ -233,6 +233,26 @@ python generate_board.py 11
 ```
 
 ![Default board](docs/gallery/01_default.png)
+
+### All five games
+
+The generator supports five game variants. The rules page for each (`--rules`) includes a small winning-position diagram showing that game's win condition.
+
+| Hex (11×11) | Rex (hexhex-11) | Yavalath (hexhex-5) | Havannah (base-8) | Trike (side-13) |
+|-------------|-----------------|---------------------|-------------------|-----------------|
+| ![Hex](docs/gallery/11_hex_default.png) | ![Rex](docs/gallery/11_rex_default.png) | ![Yavalath](docs/gallery/05_yavalath_default.png) | ![Havannah](docs/gallery/08_havannah_default.png) | ![Trike](docs/gallery/13_trike_default.png) |
+
+| Hex rules | Rex rules | Yavalath rules | Havannah rules | Trike rules |
+|-----------|-----------|----------------|----------------|-------------|
+| ![Hex rules](docs/gallery/rules_hex.png) | ![Rex rules](docs/gallery/rules_rex.png) | ![Yavalath rules](docs/gallery/rules_yavalath.png) | ![Havannah rules](docs/gallery/rules_havannah.png) | ![Trike rules](docs/gallery/rules_trike.png) |
+
+```bash
+python generate_board.py 11 --rules                              # Hex
+python generate_board.py 11 --variant rex --rules                # Rex (misère)
+python generate_board.py 5  --variant yavalath --rules           # Yavalath
+python generate_board.py 8  --game havannah --rules              # Havannah
+python generate_board.py 13 --game trike --rules                 # Trike
+```
 
 ### Dark theme
 

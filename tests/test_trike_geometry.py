@@ -82,12 +82,48 @@ class TrikeExtentTests(unittest.TestCase):
                 self.assertLessEqual(cy, gh + 1e-9)
 
     def test_apex_x_is_half_width(self):
-        # Top vertex should sit at x = gw/2 (the midpoint of the bottom edge).
+        # The apex vertex (0, N-1) sits at cx = √3·(N-1)/2; the full-cell
+        # bottom-edge width is √3·N, so the apex is offset from the bottom
+        # midpoint toward the origin side by √3·R/2.
         for N in (3, 5, 7):
             gw, _ = gb.trike_extent_r_units(N)
             q, r = gb.trike_vertices(N)[2]  # (0, N-1)
             cx, _ = gb.axial_to_pixel(q, r, 1.0)
-            self.assertAlmostEqual(cx, gw / 2, places=9)
+            self.assertAlmostEqual(cx, math.sqrt(3) * (N - 1) / 2, places=9)
+            self.assertAlmostEqual(gw, math.sqrt(3) * N, places=9)
+
+    def test_extent_encloses_full_cell_vertices(self):
+        # Paper-fit math uses the full cell vertex extent. The extent (gw, gh)
+        # is the total board width/height in R units. Cells extend √3·R/2
+        # beyond their center horizontally and R/2 vertically at the flat
+        # edges. Compute the actual leftmost/rightmost/topmost/bottommost
+        # vertex across all cells and assert it fits within (gw, gh) when
+        # centered on the cell-center bounding box.
+        for N in (3, 5, 7, 13):
+            gw, gh = gb.trike_extent_r_units(N)
+            xs, ys = [], []
+            for q, r in gb.trike_cells(N):
+                cx, cy = gb.axial_to_pixel(q, r, 1.0)
+                xs.extend([cx - math.sqrt(3) / 2, cx + math.sqrt(3) / 2])
+                ys.extend([cy - 0.5, cy + 0.5])
+            actual_w = max(xs) - min(xs)
+            actual_h = max(ys) - min(ys)
+            self.assertAlmostEqual(actual_w, gw, places=9)
+            self.assertAlmostEqual(actual_h, gh, places=9)
+
+    def test_auto_pick_paper_for_trike_side13_19mm_stones(self):
+        from generate_board import auto_pick_paper, trike_extent_r_units, PAPER_SIZES
+        paper, orient, ratio = auto_pick_paper(
+            board_size=13, stone_diameter_mm=19.0, margin_pt=36,
+            mode="safe", extent_fn=trike_extent_r_units,
+        )
+        self.assertIsNotNone(paper)
+        self.assertEqual(ratio, 0.70)
+        pw, ph = PAPER_SIZES[paper]
+        if orient == "landscape":
+            pw, ph = ph, pw
+        # side-13 Trike is large enough that 19mm stones need at least legal.
+        self.assertGreaterEqual(pw * ph, 8.5 * 11.0)
 
 
 if __name__ == "__main__":

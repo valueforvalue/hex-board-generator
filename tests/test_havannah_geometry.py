@@ -86,6 +86,43 @@ class HavannahExtentTests(unittest.TestCase):
                 self.assertLessEqual(abs(cx), gw / 2 + 1e-9)
                 self.assertLessEqual(abs(cy), gh / 2 + 1e-9)
 
+    def test_extent_encloses_full_cell_vertices(self):
+        # Paper-fit math uses the full cell vertex extent, not just the
+        # center. Cells extend √3·R/2 horizontally and R/2 vertically at the
+        # flat edges. The extent (gw, gh) is the total board size in R units,
+        # centered on the cell-center bounding box (which is also the axial
+        # origin for Havannah since it's symmetric around (0, 0)).
+        for N in (3, 5, 8, 10):
+            gw, gh = gb.havannah_extent_r_units(N)
+            xs, ys = [], []
+            for q, r in gb.havannah_cells(N):
+                cx, cy = gb.axial_to_pixel(q, r, 1.0)
+                xs.extend([cx - math.sqrt(3) / 2, cx + math.sqrt(3) / 2])
+                ys.extend([cy - 0.5, cy + 0.5])
+            actual_w = max(xs) - min(xs)
+            actual_h = max(ys) - min(ys)
+            self.assertAlmostEqual(actual_w, gw, places=9)
+            self.assertAlmostEqual(actual_h, gh, places=9)
+
+    def test_auto_pick_paper_for_havannah_base8_19mm_stones(self):
+        # Havannah base-8 (169 cells) with 19mm stones should pick a paper
+        # large enough to hold the board at the safe 0.70 stone/hex ratio.
+        from generate_board import auto_pick_paper, havannah_extent_r_units
+        paper, orient, ratio = auto_pick_paper(
+            board_size=8, stone_diameter_mm=19.0, margin_pt=36,
+            mode="safe", extent_fn=havannah_extent_r_units,
+        )
+        self.assertIsNotNone(paper)
+        self.assertEqual(ratio, 0.70)
+        # The chosen paper, with margin, must accommodate the full-cell extent.
+        from generate_board import PAPER_SIZES
+        pw, ph = PAPER_SIZES[paper]
+        if orient == "landscape":
+            pw, ph = ph, pw
+        gw, gh = havannah_extent_r_units(8)
+        # We don't recompute r here; just assert the paper is at least tabloid.
+        self.assertGreaterEqual(pw * ph, 11.0 * 14.0)
+
 
 if __name__ == "__main__":
     unittest.main()

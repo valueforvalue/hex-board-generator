@@ -222,13 +222,16 @@ def havannah_extent_r_units(N):
 
     Pointy-top axial layout: cells (q, r) center at
       cx = R·√3·(q + r/2),  cy = R·1.5·r.
-    In base-N, max |q + r/2| = N − 1 and max |r| = N − 1.
-    Width  = 2·√3·(N − 1)  · R
-    Height = 3·(N − 1)     · R
-    The board is wider than tall (the regular-hex shape is for the *cells*,
-    not the cell-centers' bounding box).
+    Cells are pointy-top hexagons with flat-to-flat width √3·R, so each cell
+    extends √3·R/2 beyond its center along the x-axis and R/2 along the y-axis
+    at the flat edges (the pointy vertices stick out by R, but the bounding-box
+    extent is governed by the flats at top/bottom of the hex shape).
+
+    Cell-center extent:    width = 2·√3·(N−1), height = 3·(N−1)
+    Full-cell extent:      width = 2·√3·(N−1) + √3 = √3·(2N−1)
+                           height = 3·(N−1) + 1
     """
-    return (2 * SQRT3 * (N - 1), 3 * (N - 1))
+    return (2 * SQRT3 * (N - 1) + SQRT3, 3 * (N - 1) + 1)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -267,12 +270,16 @@ def trike_extent_r_units(N):
     """Return (w_units, h_units): grid extent in R units for side-N board.
 
     With cell centers at cx = R·√3·(q + r/2), cy = R·1.5·r:
-      Vertices  : (0,0), (N−1,0), (0, N−1)
-                  → (0, 0), (√3·(N−1)·R, 0), (√3·(N−1)/2 · R, 1.5·(N−1)·R)
-      Width  = √3·(N − 1)        (bottom edge length, in R units)
-      Height = 1.5·(N − 1)       (apex above bottom edge)
+      Vertices: (0,0), (N−1,0), (0, N−1)
+                → (0, 0), (√3·(N−1)·R, 0), (√3·(N−1)/2 · R, 1.5·(N−1)·R)
+    Cells are pointy-top hexagons with flat-to-flat width √3·R, so each cell
+    extends √3·R/2 beyond its center along the x-axis. The bottom row r=0 has
+    its leftmost vertex at cx = -√3·R/2 and rightmost at cx = √3·(N−1)·R + √3·R/2.
+
+    Cell-center extent: width = √3·(N − 1), height = 1.5·(N − 1)
+    Full-cell extent:   width = √3·N,         height = 1.5·(N − 1) + 1
     """
-    return (SQRT3 * (N - 1), 1.5 * (N - 1))
+    return (SQRT3 * N, 1.5 * (N - 1) + 1)
 
 
 def pick_page_size(name, board_size, extent_fn=None):
@@ -830,6 +837,455 @@ def draw_rules_page(c, page_w, page_h, theme="classic", label_set="wb",
                                 label_set=label_set, stone_mode=stone_mode)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Winning-position diagrams
+#
+# Each game has a small (4-7 cell) illustrative position that demonstrates its
+# win condition. These are drawn inline on the rules page using themed
+# stones/cells so they match the surrounding visuals.
+#
+# Layout contract for all diagram helpers:
+#   region = (x, y, w, h): bottom-left corner + size in points (page coords).
+#   The diagram fills the region (centered, aspect preserved). Helpers return
+#   the (r, board_w, board_h) used so the caller can place captions relative
+#   to the actual drawn board if needed.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _draw_hex_cell(c, cx, cy, r, fill_color, stroke_color, line_width=0.8):
+    """Draw one pointy-top hex cell centered at (cx, cy)."""
+    pts = hex_vertices(cx, cy, r)
+    c.setStrokeColor(colors.HexColor(stroke_color))
+    c.setLineWidth(line_width)
+    c.setFillColor(colors.HexColor(fill_color))
+    path = c.beginPath()
+    path.moveTo(pts[0][0], pts[0][1])
+    for p in pts[1:]:
+        path.lineTo(p[0], p[1])
+    path.close()
+    c.drawPath(path, fill=True, stroke=True)
+
+
+def _draw_stone(c, cx, cy, r, color, outline_color=None, outline_width=0.5):
+    """Draw a filled circular stone centered at (cx, cy) with radius `r`."""
+    c.setFillColor(colors.HexColor(color))
+    if outline_color:
+        c.setStrokeColor(colors.HexColor(outline_color))
+        c.setLineWidth(outline_width)
+        c.circle(cx, cy, r, fill=True, stroke=True)
+    else:
+        c.circle(cx, cy, r, fill=True, stroke=False)
+
+
+def _draw_hex_diagram(c, region, board_size, stones, winning_path,
+                      theme="classic", side_bands=True, label_set="wb"):
+    """Draw a small Hex/Rex/Yavalath board region with stones and a winning
+    path highlighted.
+
+    `stones`: dict mapping (row, col) -> "W" or "B".
+    `winning_path`: list of (row, col) cells forming the winning chain
+                    (drawn with a thick colored outline).
+    """
+    rx, ry, rw, rh = region
+    theme_def = THEMES[theme]
+
+    bg = theme_def.get("page_bg")
+    if bg:
+        c.setFillColor(colors.HexColor(bg))
+        c.rect(rx, ry, rw, rh, fill=True, stroke=False)
+
+    gw_units, gh_units = grid_extent_r_units(board_size)
+    r = min(rw / gw_units, rh / gh_units) * 0.95
+    board_w = gw_units * r
+    board_h = gh_units * r
+    board_cx = rx + rw / 2
+    board_cy = ry + rh / 2
+    offset_x = board_cx - board_w / 2
+    offset_y = board_cy - board_h / 2
+
+    # Draw cell backgrounds.
+    for row in range(board_size):
+        for col in range(board_size):
+            cx = r * SQRT3 * (col + 0.5 * row) + offset_x
+            cy = r * 1.5 * row + offset_y
+            fill = theme_def["fill_a"] if (row + col) % 2 == 0 else theme_def["fill_b"]
+            _draw_hex_cell(c, cx, cy, r, fill, theme_def["stroke"], line_width=0.8)
+
+    # Place stones (skip if cell is on the winning path; we draw highlight first).
+    stone_radius = r * 0.78
+    for (row, col), color_letter in stones.items():
+        if (row, col) in set(winning_path):
+            continue
+        cx = r * SQRT3 * (col + 0.5 * row) + offset_x
+        cy = r * 1.5 * row + offset_y
+        stone_color = theme_def["white"] if color_letter == "W" else theme_def["black"]
+        _draw_stone(c, cx, cy, stone_radius, stone_color,
+                    outline_color=theme_def["stroke"], outline_width=0.5)
+
+    # Highlight winning path with a thick outline ring around each cell.
+    if winning_path:
+        win_color = theme_def["black"] if any(
+            stones.get(rc) == "B" for rc in winning_path
+        ) else theme_def["white"]
+        # Use the opposite color for highlight so it's visible on top of stones.
+        highlight = (theme_def["black"]
+                     if win_color == theme_def["white"]
+                     else theme_def["white"])
+        c.setStrokeColor(colors.HexColor(highlight))
+        c.setLineWidth(2.5)
+        c.setFillColor(colors.HexColor(highlight))
+        for (row, col) in winning_path:
+            cx = r * SQRT3 * (col + 0.5 * row) + offset_x
+            cy = r * 1.5 * row + offset_y
+            c.circle(cx, cy, r * 0.92, fill=False, stroke=True)
+
+        # Re-draw winning stones on top of the highlight so the highlight
+        # forms a ring around the stone, not over it.
+        for (row, col) in winning_path:
+            color_letter = stones.get((row, col))
+            if color_letter:
+                cx = r * SQRT3 * (col + 0.5 * row) + offset_x
+                cy = r * 1.5 * row + offset_y
+                stone_color = (theme_def["white"] if color_letter == "W"
+                               else theme_def["black"])
+                _draw_stone(c, cx, cy, stone_radius, stone_color,
+                            outline_color=theme_def["stroke"], outline_width=0.5)
+
+    return r, board_w, board_h
+
+
+def _draw_hex_win_diagram(c, region, theme="classic"):
+    """Standard Hex: White wins with a top-bottom chain on a 5x5 board."""
+    # Compact 5x5 example: White connects top-bottom edge.
+    stones = {
+        (0, 2): "W", (1, 2): "W", (2, 2): "W", (3, 2): "W", (4, 2): "W",
+        (0, 1): "B", (1, 1): "B", (2, 1): "B",
+        (1, 3): "B", (2, 3): "B", (3, 3): "B",
+        (3, 0): "B", (4, 0): "B",
+        (0, 3): "B", (4, 1): "B",
+    }
+    winning_path = [(0, 2), (1, 2), (2, 2), (3, 2), (4, 2)]
+    return _draw_hex_diagram(c, region, board_size=5, stones=stones,
+                             winning_path=winning_path, theme=theme)
+
+
+def _draw_rex_win_diagram(c, region, theme="classic"):
+    """Rex: White connects top-bottom (which means White LOSES).
+    The losing chain is highlighted.
+    """
+    stones = {
+        (0, 2): "W", (1, 2): "W", (2, 2): "W", (3, 2): "W", (4, 2): "W",
+        (0, 1): "B", (1, 1): "B", (2, 1): "B",
+        (1, 3): "B", (2, 3): "B", (3, 3): "B",
+        (3, 0): "B", (4, 0): "B",
+        (0, 3): "B", (4, 1): "B",
+    }
+    losing_path = [(0, 2), (1, 2), (2, 2), (3, 2), (4, 2)]
+    return _draw_hex_diagram(c, region, board_size=5, stones=stones,
+                             winning_path=losing_path, theme=theme)
+
+
+def _draw_yavalath_win_diagram(c, region, theme="classic"):
+    """Yavalath: White wins with 4-in-a-row on hexhex-5. Highlight the 4-chain."""
+    stones = {
+        (0, 2): "W", (1, 2): "W", (2, 2): "W", (3, 2): "W",
+        (0, 1): "B", (1, 1): "B", (2, 1): "B",
+        (1, 3): "B", (2, 3): "B", (3, 3): "B",
+        (2, 0): "B", (3, 0): "B", (4, 0): "B",
+        (0, 3): "B", (0, 4): "B",
+    }
+    winning_path = [(0, 2), (1, 2), (2, 2), (3, 2)]
+    return _draw_hex_diagram(c, region, board_size=5, stones=stones,
+                             winning_path=winning_path, theme=theme)
+
+
+def _draw_havannah_cell(c, cx, cy, r, fill_color, stroke_color):
+    """Draw one Havannah hex cell (pointy-top)."""
+    _draw_hex_cell(c, cx, cy, r, fill_color, stroke_color, line_width=0.8)
+
+
+def _draw_havannah_diagram(c, region, base, stones_axial, winning_path_axial,
+                           highlight_ring=False, theme="classic"):
+    """Draw a small Havannah board region with stones and a winning structure.
+
+    `stones_axial`: dict mapping (q, r) -> "W" or "B".
+    `winning_path_axial`: list of (q, r) cells forming the winning structure.
+    `highlight_ring`: if True, draw a closed loop around the ring cells instead
+                      of outlining each cell individually.
+    """
+    rx, ry, rw, rh = region
+    theme_def = THEMES[theme]
+
+    bg = theme_def.get("page_bg")
+    if bg:
+        c.setFillColor(colors.HexColor(bg))
+        c.rect(rx, ry, rw, rh, fill=True, stroke=False)
+
+    gw_units, gh_units = havannah_extent_r_units(base)
+    # Slightly smaller r to leave caption room.
+    r = min(rw / gw_units, rh / gh_units) * 0.95
+    board_w = gw_units * r
+    board_h = gh_units * r
+    board_cx = rx + rw / 2
+    board_cy = ry + rh / 2
+    offset_x = board_cx
+    offset_y = board_cy
+
+    stone_radius = r * 0.78
+    winning_set = set(winning_path_axial)
+
+    # Cells.
+    for q, rr in havannah_cells(base):
+        cx, cy = axial_to_pixel(q, rr, r)
+        cx += offset_x
+        cy += offset_y
+        fill = _havannah_cell_color(theme_def, q, rr)
+        _draw_havannah_cell(c, cx, cy, r, fill, theme_def["stroke"])
+
+    # Stones not on the winning path.
+    for (q, rr), color_letter in stones_axial.items():
+        if (q, rr) in winning_set:
+            continue
+        cx, cy = axial_to_pixel(q, rr, r)
+        stone_color = theme_def["white"] if color_letter == "W" else theme_def["black"]
+        _draw_stone(c, cx + offset_x, cy + offset_y, stone_radius, stone_color,
+                    outline_color=theme_def["stroke"], outline_width=0.5)
+
+    # Highlight: for ring, draw a closed loop; for bridge/fork, outline cells.
+    if highlight_ring and winning_path_axial:
+        # Closed loop connecting adjacent cells on the path. We approximate
+        # by drawing a polyline through the cell centers.
+        pts = []
+        for (q, rr) in winning_path_axial:
+            cx, cy = axial_to_pixel(q, rr, r)
+            pts.append((cx + offset_x, cy + offset_y))
+        if pts:
+            pts.append(pts[0])  # close the loop
+            win_color = (theme_def["white"]
+                         if any(stones_axial.get(p) == "W" for p in winning_path_axial)
+                         else theme_def["black"])
+            highlight = (theme_def["black"]
+                         if win_color == theme_def["white"]
+                         else theme_def["white"])
+            c.setStrokeColor(colors.HexColor(highlight))
+            c.setLineWidth(2.5)
+            path = c.beginPath()
+            path.moveTo(pts[0][0], pts[0][1])
+            for p in pts[1:]:
+                path.lineTo(p[0], p[1])
+            path.close()
+            c.drawPath(path, stroke=True, fill=False)
+    elif winning_path_axial:
+        # Cell-by-cell outline (bridge/fork).
+        win_color = (theme_def["white"]
+                     if any(stones_axial.get(p) == "W" for p in winning_path_axial)
+                     else theme_def["black"])
+        highlight = (theme_def["black"]
+                     if win_color == theme_def["white"]
+                     else theme_def["white"])
+        c.setStrokeColor(colors.HexColor(highlight))
+        c.setLineWidth(2.5)
+        for (q, rr) in winning_path_axial:
+            cx, cy = axial_to_pixel(q, rr, r)
+            c.circle(cx + offset_x, cy + offset_y, r * 0.92,
+                     fill=False, stroke=True)
+
+    # Re-draw winning-path stones on top of the highlight.
+    for (q, rr) in winning_path_axial:
+        color_letter = stones_axial.get((q, rr))
+        if not color_letter:
+            continue
+        cx, cy = axial_to_pixel(q, rr, r)
+        stone_color = theme_def["white"] if color_letter == "W" else theme_def["black"]
+        _draw_stone(c, cx + offset_x, cy + offset_y, stone_radius, stone_color,
+                    outline_color=theme_def["stroke"], outline_width=0.5)
+
+    return r, board_w, board_h
+
+
+def _draw_havannah_ring_diagram(c, region, theme="classic"):
+    """Havannah ring win: a 6-cell closed loop around the center on base-4."""
+    # base-4 cells are bounded by max(|q|,|r|,|s|) <= 3; the ring sits at
+    # axial distance 2 from the origin.
+    stones = {
+        # Outer ring of White stones (radius 2 from origin).
+        (2, 0): "W", (2, -1): "W", (1, -2): "W",
+        (-1, -2): "W", (-2, -1): "W", (-2, 0): "W",
+        (-2, 1): "W", (-1, 2): "W", (0, 2): "W",
+        (1, 1): "W", (1, 0): "W", (0, -1): "W",
+        # Some Black filler so the position looks like a real game.
+        (0, 0): "B", (0, 1): "B", (-1, 0): "B", (-1, 1): "B",
+        (1, -1): "B",
+    }
+    ring = [(2, 0), (2, -1), (1, -2), (-1, -2), (-2, -1), (-2, 0),
+            (-2, 1), (-1, 2), (0, 2), (1, 1), (1, 0), (0, -1)]
+    return _draw_havannah_diagram(c, region, base=4, stones_axial=stones,
+                                  winning_path_axial=ring, highlight_ring=True,
+                                  theme=theme)
+
+
+def _draw_havannah_bridge_diagram(c, region, theme="classic"):
+    """Havannah bridge win: White connects two corners on base-5."""
+    stones = {
+        # Connect corner (4, -4) to corner (-4, 4) through the center.
+        (4, -4): "W", (3, -3): "W", (2, -2): "W", (1, -1): "W",
+        (0, 0): "W", (-1, 1): "W", (-2, 2): "W", (-3, 3): "W", (-4, 4): "W",
+        # Some Black stones to make it look like a real game.
+        (3, -2): "B", (2, 0): "B", (1, 1): "B", (-1, 2): "B",
+        (-2, 3): "B", (2, -3): "B", (-3, 4): "B", (4, -3): "B",
+    }
+    bridge = [(4, -4), (3, -3), (2, -2), (1, -1), (0, 0),
+              (-1, 1), (-2, 2), (-3, 3), (-4, 4)]
+    return _draw_havannah_diagram(c, region, base=5, stones_axial=stones,
+                                  winning_path_axial=bridge, theme=theme)
+
+
+def _draw_havannah_fork_diagram(c, region, theme="classic"):
+    """Havannah fork win: White connects three edges on base-5."""
+    # Connect corner (0, -4) [bottom edge] -> center -> (4, 0) [right edge] ->
+    # (-4, 0) [left edge].
+    stones = {
+        (0, -4): "W", (0, -3): "W", (0, -2): "W", (0, -1): "W",
+        (1, -1): "W", (2, -1): "W", (3, -1): "W", (4, -1): "W",
+        (4, 0): "W",
+        (-1, 1): "W", (-2, 1): "W", (-3, 1): "W", (-4, 1): "W", (-4, 0): "W",
+        # Black filler.
+        (1, 0): "B", (2, 0): "B", (3, 0): "B",
+        (-1, 0): "B", (-2, 0): "B", (-3, 0): "B",
+        (1, -2): "B", (2, -2): "B",
+        (-1, 2): "B", (-2, 2): "B",
+    }
+    fork = [(0, -4), (0, -3), (0, -2), (0, -1), (1, -1), (2, -1), (3, -1),
+            (4, -1), (4, 0), (-4, 0), (-4, 1), (-3, 1), (-2, 1), (-1, 1)]
+    return _draw_havannah_diagram(c, region, base=5, stones_axial=stones,
+                                  winning_path_axial=fork, theme=theme)
+
+
+def _draw_trike_diagram(c, region, side, stones_axial, pawn_axial, score_cells,
+                        theme="classic"):
+    """Draw a small Trike board region with checkers and a pawn, plus
+    highlight cells that score (adjacent to pawn).
+
+    `stones_axial`: dict (q, r) -> "W" or "B" for placed checkers.
+    `pawn_axial`: (q, r) location of the pawn.
+    `score_cells`: list of (q, r) cells that score (adjacent to pawn).
+    """
+    rx, ry, rw, rh = region
+    theme_def = THEMES[theme]
+
+    bg = theme_def.get("page_bg")
+    if bg:
+        c.setFillColor(colors.HexColor(bg))
+        c.rect(rx, ry, rw, rh, fill=True, stroke=False)
+
+    gw_units, gh_units = trike_extent_r_units(side)
+    # Trike boards anchor the bottom edge at anchor_y = r (one cell above
+    # the bottom of the region) so the apex has clearance. Apply the same
+    # 0.96 safety used by draw_trike_board_into_region.
+    r = min(rw / gw_units, rh / gh_units) * 0.93
+    board_w = gw_units * r
+    board_h = gh_units * r
+    board_cx = rx + rw / 2
+    anchor_x = board_cx - board_w / 2
+    anchor_y = ry + r
+
+    stone_radius = r * 0.78
+    score_set = set(score_cells)
+
+    # Cells.
+    for q, rr in trike_cells(side):
+        cx, cy = axial_to_pixel(q, rr, r)
+        cx += anchor_x
+        cy += anchor_y
+        fill = _trike_cell_color(theme_def, q, rr)
+        _draw_hex_cell(c, cx, cy, r, fill, theme_def["stroke"], line_width=0.8)
+
+    # Stones.
+    for (q, rr), color_letter in stones_axial.items():
+        if (q, rr) == pawn_axial:
+            continue
+        cx, cy = axial_to_pixel(q, rr, r)
+        stone_color = theme_def["white"] if color_letter == "W" else theme_def["black"]
+        _draw_stone(c, cx + anchor_x, cy + anchor_y, stone_radius, stone_color,
+                    outline_color=theme_def["stroke"], outline_width=0.5)
+
+    # Highlight score cells with a dotted ring (different look from winning paths).
+    c.setStrokeColor(colors.HexColor(theme_def["black"]))
+    c.setLineWidth(1.5)
+    c.setDash(3, 2)
+    for (q, rr) in score_cells:
+        cx, cy = axial_to_pixel(q, rr, r)
+        c.circle(cx + anchor_x, cy + anchor_y, r * 0.85,
+                 fill=False, stroke=True)
+    c.setDash()  # reset
+
+    # Draw pawn last so it sits on top.
+    pq, pr = pawn_axial
+    pcx, pcy = axial_to_pixel(pq, pr, r)
+    _draw_stone(c, pcx + anchor_x, pcy + anchor_y, stone_radius,
+                "#888888", outline_color=theme_def["stroke"], outline_width=0.7)
+    # Small "P" label on the pawn.
+    c.setFillColor(colors.HexColor("#FFFFFF"))
+    c.setFont("Helvetica-Bold", max(6, int(r * 0.5)))
+    c.drawCentredString(pcx + anchor_x, pcy + anchor_y - r * 0.18, "P")
+
+    return r, board_w, board_h
+
+
+def _draw_trike_win_diagram(c, region, theme="classic"):
+    """Trike: pawn trapped on side-5, with mixed White/Black scoring cells."""
+    # side-5 board. Pawn at (2, 1) (central-ish cell). Adjacent cells (axial
+    # neighbors) are the score cells: (1,1), (3,1), (2,0), (2,2), (1,2), (3,0).
+    pawn = (2, 1)
+    score_cells = [(1, 1), (3, 1), (2, 0), (2, 2), (1, 2), (3, 0)]
+    stones = {
+        # Pawn cell (drawn last as the pawn itself, no checker).
+        # 3 White scoring cells, 3 Black scoring cells.
+        (1, 1): "W", (2, 0): "W", (1, 2): "W",
+        (3, 1): "B", (2, 2): "B", (3, 0): "B",
+        # Some extra non-scoring checkers to look like a real game.
+        (0, 0): "W", (0, 1): "W", (4, 0): "B", (0, 4): "B", (4, 0): "B",
+    }
+    return _draw_trike_diagram(c, region, side=5, stones_axial=stones,
+                               pawn_axial=pawn, score_cells=score_cells,
+                               theme=theme)
+
+
+def _rules_body_lines(c, x, y_state, text, max_w, font="Helvetica", size=12,
+                     line_height=15, bottom_limit=None):
+    """Word-wrap `text` into lines and draw them, advancing the y cursor.
+
+    `y_state` is a single-element list [y] used as a mutable cell so the caller
+    can read the advanced cursor after return. Stops drawing if y would drop
+    below `bottom_limit` (so body text doesn't run into the page footer).
+    Returns the final y position.
+    """
+    y = y_state[0]
+    c.setFont(font, size)
+    words = text.split()
+    line = ""
+    for w in words:
+        test = (line + " " + w).strip()
+        if c.stringWidth(test, font, size) > max_w:
+            if bottom_limit is not None and y < bottom_limit:
+                y_state[0] = y
+                return y
+            c.drawString(x, y, line)
+            y -= line_height
+            line = w
+        else:
+            line = test
+    if line:
+        if bottom_limit is not None and y < bottom_limit:
+            y_state[0] = y
+            return y
+        c.drawString(x, y, line)
+        y -= line_height
+    y -= 4
+    y_state[0] = y
+    return y
+
+
 def _draw_hex_rules_page(c, page_w, page_h, theme="classic",
                          label_set="wb", stone_mode=False):
     """Draw a one-page Hex rules summary as the final page of the PDF."""
@@ -861,29 +1317,27 @@ def _draw_hex_rules_page(c, page_w, page_h, theme="classic",
 
     def section(title_text):
         nonlocal y
-        c.setFont("Helvetica-Bold", 18)
+        c.setFont("Helvetica-Bold", 16)
         c.setFillColor(colors.HexColor(accent))
         c.drawString(x, y, title_text)
-        y -= 24
+        y -= 20
 
     def body(text):
         nonlocal y
-        c.setFont("Helvetica", 14)
         c.setFillColor(colors.HexColor(text_color))
-        words = text.split()
-        line = ""
-        for w in words:
-            test = (line + " " + w).strip()
-            if c.stringWidth(test, "Helvetica", 14) > max_w:
-                c.drawString(x, y, line)
-                y -= 18
-                line = w
-            else:
-                line = test
-        if line:
-            c.drawString(x, y, line)
-            y -= 18
+        y = _rules_body_lines(c, x, [y], text, max_w,
+                              bottom_limit=margin / 2 + 30)
+
+    def diagram(draw_fn, caption, height_pt=140):
+        """Reserve vertical space, draw a centered diagram + caption, advance y."""
+        nonlocal y
         y -= 6
+        region = (x, y - height_pt, max_w, height_pt)
+        draw_fn(c, region, theme=theme)
+        c.setFont("Helvetica-Oblique", 9)
+        c.setFillColor(colors.HexColor(subtle_color))
+        c.drawCentredString(page_w / 2, y - height_pt - 12, caption)
+        y -= height_pt + 36
 
     section("Players")
     body("Two players. One plays " + p1 + ", the other plays " + p2 + ".")
@@ -906,6 +1360,10 @@ def _draw_hex_rules_page(c, page_w, page_h, theme="classic",
     section("Win condition")
     body("Connect your two opposite sides with a chain of your stones. A draw is impossible \u2014 the Brouwer fixed-point theorem guarantees one player must win.")
 
+    diagram(_draw_hex_win_diagram,
+            "Example: White wins by connecting the top and bottom edges.",
+            height_pt=80)
+
     section("The swap rule (recommended for fairness)")
     body("After the first player makes their opening move, the second player may choose to either keep their color or swap colors. This largely nullifies the first-move advantage.")
 
@@ -915,7 +1373,9 @@ def _draw_hex_rules_page(c, page_w, page_h, theme="classic",
     # Footer
     c.setFont("Helvetica-Oblique", 11)
     c.setFillColor(colors.HexColor(subtle_color))
-    c.drawCentredString(page_w / 2, margin / 2,
+    c.setFont("Helvetica-Oblique", 9)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawCentredString(page_w / 2, margin / 2 - 6,
         "Hex is a member of the connection game family. See en.wikipedia.org/wiki/Hex_(board_game) for the full rules.")
 
 
@@ -948,29 +1408,27 @@ def _draw_rex_rules_page(c, page_w, page_h, theme="classic", stone_mode=False):
 
     def section(title_text):
         nonlocal y
-        c.setFont("Helvetica-Bold", 18)
+        c.setFont("Helvetica-Bold", 16)
         c.setFillColor(colors.HexColor(accent))
         c.drawString(x, y, title_text)
-        y -= 24
+        y -= 20
 
     def body(text):
         nonlocal y
-        c.setFont("Helvetica", 14)
         c.setFillColor(colors.HexColor(text_color))
-        words = text.split()
-        line = ""
-        for w in words:
-            test = (line + " " + w).strip()
-            if c.stringWidth(test, "Helvetica", 14) > max_w:
-                c.drawString(x, y, line)
-                y -= 18
-                line = w
-            else:
-                line = test
-        if line:
-            c.drawString(x, y, line)
-            y -= 18
+        y = _rules_body_lines(c, x, [y], text, max_w,
+                              bottom_limit=margin / 2 + 30)
+
+    def diagram(draw_fn, caption, height_pt=80):
+        """Reserve vertical space, draw a centered diagram + caption, advance y."""
+        nonlocal y
         y -= 6
+        region = (x, y - height_pt, max_w, height_pt)
+        draw_fn(c, region, theme=theme)
+        c.setFont("Helvetica-Oblique", 9)
+        c.setFillColor(colors.HexColor(subtle_color))
+        c.drawCentredString(page_w / 2, y - height_pt - 12, caption)
+        y -= height_pt + 36
 
     section("Players")
     body("Two players. One plays " + p1 + ", the other plays " + p2 + ".")
@@ -993,6 +1451,10 @@ def _draw_rex_rules_page(c, page_w, page_h, theme="classic", stone_mode=False):
     section("Win condition")
     body("You win when your opponent completes a connected chain linking their two assigned sides. A draw is impossible \u2014 the Brouwer fixed-point theorem still guarantees one player must connect first.")
 
+    diagram(_draw_rex_win_diagram,
+            "Example: White has just connected top and bottom \u2014 White LOSES, Black wins.",
+            height_pt=80)
+
     section("Strategy hint")
     body("Rex slows the game down \u2014 both players are trying not to win. Look for 'forced' threats that compress your opponent's options until they have no choice but to complete their own chain.")
 
@@ -1001,7 +1463,9 @@ def _draw_rex_rules_page(c, page_w, page_h, theme="classic", stone_mode=False):
 
     c.setFont("Helvetica-Oblique", 11)
     c.setFillColor(colors.HexColor(subtle_color))
-    c.drawCentredString(page_w / 2, margin / 2,
+    c.setFont("Helvetica-Oblique", 9)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawCentredString(page_w / 2, margin / 2 - 6,
         "Rex is a member of the Hex family of connection games.")
 
 
@@ -1033,29 +1497,27 @@ def _draw_yavalath_rules_page(c, page_w, page_h, theme="classic", stone_mode=Fal
 
     def section(title_text):
         nonlocal y
-        c.setFont("Helvetica-Bold", 18)
+        c.setFont("Helvetica-Bold", 16)
         c.setFillColor(colors.HexColor(accent))
         c.drawString(x, y, title_text)
-        y -= 24
+        y -= 20
 
     def body(text):
         nonlocal y
-        c.setFont("Helvetica", 14)
         c.setFillColor(colors.HexColor(text_color))
-        words = text.split()
-        line = ""
-        for w in words:
-            test = (line + " " + w).strip()
-            if c.stringWidth(test, "Helvetica", 14) > max_w:
-                c.drawString(x, y, line)
-                y -= 18
-                line = w
-            else:
-                line = test
-        if line:
-            c.drawString(x, y, line)
-            y -= 18
+        y = _rules_body_lines(c, x, [y], text, max_w,
+                              bottom_limit=margin / 2 + 30)
+
+    def diagram(draw_fn, caption, height_pt=80):
+        """Reserve vertical space, draw a centered diagram + caption, advance y."""
+        nonlocal y
         y -= 6
+        region = (x, y - height_pt, max_w, height_pt)
+        draw_fn(c, region, theme=theme)
+        c.setFont("Helvetica-Oblique", 9)
+        c.setFillColor(colors.HexColor(subtle_color))
+        c.drawCentredString(page_w / 2, y - height_pt - 12, caption)
+        y -= height_pt + 36
 
     section("Players")
     body("Two players. Each has stones of their own color (White and Black).")
@@ -1075,21 +1537,21 @@ def _draw_yavalath_rules_page(c, page_w, page_h, theme="classic", stone_mode=Fal
     section("The 3-or-4 rule")
     body("This is the twist that defines Yavalath: making a line of exactly three stones loses the game. So you may not 'play around' an opponent's setup with three-of-a-kind threats \u2014 the threat backfires.")
 
+    diagram(_draw_yavalath_win_diagram,
+            "Example: White wins with 4 in a row (the lighter stones).",
+            height_pt=70)
+
     section("Setup (optional swap rule)")
-    body("White plays first. On White's second turn, Black may take White's opening stone and switch colors. This prevents a single overpowering opening move and balances the first-player advantage.")
-
-    section("Three-player variant")
-    body("Add a third color (red stones). Players must block the next player's winning line if they can. Any player who forms a line of three (without also forming a line of four) is eliminated (their stones stay on the board). Last surviving player \u2014 or first player to make 4 in a row \u2014 wins.")
-
-    section("Pentalath (bonus game)")
-    body("The same set plays Pentalath: aim for 5 in a row. After each turn, any enemy group with no liberties (no empty neighbor cells) is captured and removed, Go-style. The first player to capture an enemy stone also wins immediately.")
+    body("White plays first. On White's second turn, Black may take White's opening stone and switch colors. This balances the first-player advantage. The same set also plays Pentalath (5-in-a-row with Go-style captures) and a three-player variant.")
 
     section("Coordinate notation")
     body("Columns use standard Go notation: a\u2013h, then j\u2013z (the letter i is skipped, per Go convention). Rows are numbered 1\u2013N from bottom to top. A cell's address is column+row, e.g. \u201cf7\u201d refers to column f, row 7.")
 
     c.setFont("Helvetica-Oblique", 11)
     c.setFillColor(colors.HexColor(subtle_color))
-    c.drawCentredString(page_w / 2, margin / 2,
+    c.setFont("Helvetica-Oblique", 9)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawCentredString(page_w / 2, margin / 2 - 6,
         "Yavalath rules by Cameron Browne \u2022 nestorgames.com rulebook PDF")
 
 
@@ -1350,29 +1812,39 @@ def draw_havannah_rules_page(c, page_w, page_h, theme="classic", stone_mode=Fals
 
     def section(title_text):
         nonlocal y
-        c.setFont("Helvetica-Bold", 18)
+        c.setFont("Helvetica-Bold", 16)
         c.setFillColor(colors.HexColor(accent))
         c.drawString(x, y, title_text)
-        y -= 24
+        y -= 20
 
     def body(text):
         nonlocal y
-        c.setFont("Helvetica", 14)
         c.setFillColor(colors.HexColor(text_color))
-        words = text.split()
-        line = ""
-        for w in words:
-            test = (line + " " + w).strip()
-            if c.stringWidth(test, "Helvetica", 14) > max_w:
-                c.drawString(x, y, line)
-                y -= 18
-                line = w
-            else:
-                line = test
-        if line:
-            c.drawString(x, y, line)
-            y -= 18
+        y = _rules_body_lines(c, x, [y], text, max_w,
+                              bottom_limit=margin / 2 + 30)
+
+    def diagrams_row(items, total_height_pt=110, caption_pt=18):
+        """Render a horizontal row of small diagrams.
+
+        `items`: list of (draw_fn, caption) tuples. Each gets equal horizontal
+        space. The row reserves `total_height_pt` vertically; each caption sits
+        `caption_pt` below the row.
+        """
+        nonlocal y
         y -= 6
+        n = len(items)
+        gap = 14
+        cell_w = (max_w - gap * (n - 1)) / n
+        for i, (draw_fn, caption) in enumerate(items):
+            cell_x = x + i * (cell_w + gap)
+            region = (cell_x, y - total_height_pt + caption_pt, cell_w,
+                      total_height_pt - caption_pt)
+            draw_fn(c, region, theme=theme)
+            c.setFont("Helvetica-Oblique", 9)
+            c.setFillColor(colors.HexColor(subtle_color))
+            c.drawCentredString(cell_x + cell_w / 2, y - total_height_pt,
+                                caption)
+        y -= total_height_pt + 22
 
     section("Players")
     body("Two players. One plays white stones, the other plays black stones.")
@@ -1395,6 +1867,12 @@ def draw_havannah_rules_page(c, page_w, page_h, theme="classic", stone_mode=Fals
     section("Win condition 3: fork")
     body("Connect any three of the six edges of the board. (Corner cells are not part of an edge.)")
 
+    diagrams_row([
+        (_draw_havannah_ring_diagram,    "Ring"),
+        (_draw_havannah_bridge_diagram,  "Bridge"),
+        (_draw_havannah_fork_diagram,    "Fork"),
+    ], total_height_pt=95)
+
     section("How to play")
     if stone_mode:
         body("On your turn, place a stone of your color on any empty hex cell, centered within the hex. Stones are never moved or removed.")
@@ -1409,7 +1887,9 @@ def draw_havannah_rules_page(c, page_w, page_h, theme="classic", stone_mode=Fals
 
     c.setFont("Helvetica-Oblique", 11)
     c.setFillColor(colors.HexColor(subtle_color))
-    c.drawCentredString(page_w / 2, margin / 2,
+    c.setFont("Helvetica-Oblique", 9)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawCentredString(page_w / 2, margin / 2 - 6,
         "Havannah is a member of the connection game family. See en.wikipedia.org/wiki/Havannah_(board_game) for the full rules.")
 
 
@@ -1666,29 +2146,27 @@ def draw_trike_rules_page(c, page_w, page_h, theme="classic", stone_mode=False):
 
     def section(title_text):
         nonlocal y
-        c.setFont("Helvetica-Bold", 18)
+        c.setFont("Helvetica-Bold", 16)
         c.setFillColor(colors.HexColor(accent))
         c.drawString(x, y, title_text)
-        y -= 24
+        y -= 20
 
     def body(text):
         nonlocal y
-        c.setFont("Helvetica", 14)
         c.setFillColor(colors.HexColor(text_color))
-        words = text.split()
-        line = ""
-        for w in words:
-            test = (line + " " + w).strip()
-            if c.stringWidth(test, "Helvetica", 14) > max_w:
-                c.drawString(x, y, line)
-                y -= 18
-                line = w
-            else:
-                line = test
-        if line:
-            c.drawString(x, y, line)
-            y -= 18
+        y = _rules_body_lines(c, x, [y], text, max_w,
+                              bottom_limit=margin / 2 + 30)
+
+    def diagram(draw_fn, caption, height_pt=110):
+        """Reserve vertical space, draw a centered diagram + caption, advance y."""
+        nonlocal y
         y -= 6
+        region = (x, y - height_pt, max_w, height_pt)
+        draw_fn(c, region, theme=theme)
+        c.setFont("Helvetica-Oblique", 9)
+        c.setFillColor(colors.HexColor(subtle_color))
+        c.drawCentredString(page_w / 2, y - height_pt - 12, caption)
+        y -= height_pt + 36
 
     section("Players")
     body("Two players. One plays white checkers, the other plays black checkers. A single neutral pawn is shared.")
@@ -1702,6 +2180,10 @@ def draw_trike_rules_page(c, page_w, page_h, theme="classic", stone_mode=False):
     section("Goal")
     body("Trap the pawn. When no legal move is possible, each player scores 1 point for every checker of their own color that is adjacent to \u2014 or sitting under \u2014 the pawn. The player with the higher score wins.")
 
+    diagram(_draw_trike_win_diagram,
+            "Pawn trapped \u2014 White scores the lighter dotted cells, Black scores the darker ones.",
+            height_pt=110)
+
     section("How to play")
     if stone_mode:
         body("On your turn, move the pawn any number of empty cells in a straight line in any of the six axial directions. The pawn cannot pass over or land on an occupied cell. When you move the pawn, place a checker of your own color on the destination cell, then move the pawn on top of it.")
@@ -1709,17 +2191,16 @@ def draw_trike_rules_page(c, page_w, page_h, theme="classic", stone_mode=False):
         body("On your turn, move the pawn any number of empty cells in a straight line in any of the six axial directions. The pawn cannot pass over or land on an occupied cell. When you move the pawn, mark the destination cell with your symbol (X, O, or your initial), then move the pawn on top of it.")
 
     section("Pie rule (recommended for fairness)")
-    body("Player 1 makes the opening move (places one checker on any empty cell with the pawn on top). Player 2 may then either make a normal move, or swap sides and take the opening position. The pie rule cancels the first-move advantage.")
-
-    section("Board sizing")
-    body("Standard sizes are 7\u201310 for learning and 13\u201315 for serious play. Boards from 7 to 19 are supported. Larger boards reward deeper planning; smaller boards reward sharper tactics.")
+    body("Player 1 makes the opening move. Player 2 may then either make a normal move, or swap sides and take the opening position. The pie rule cancels the first-move advantage. Board sizes 7\u201310 suit learning; 13\u201315 are standard for serious play; 7\u201319 are supported.")
 
     section("Coordinate notation")
     body("Cells use axial coordinates (q, r). A cell's address is the pair q,r, e.g. \"3,1\". The triangle's three vertex cells are (0, 0), (N\u22121, 0), and (0, N\u22121).")
 
     c.setFont("Helvetica-Oblique", 11)
     c.setFillColor(colors.HexColor(subtle_color))
-    c.drawCentredString(page_w / 2, margin / 2,
+    c.setFont("Helvetica-Oblique", 9)
+    c.setFillColor(colors.HexColor(subtle_color))
+    c.drawCentredString(page_w / 2, margin / 2 - 6,
         "Trike is a combinatorial abstract. See boardgamegeek.com/boardgame/307379/trike for the full rules.")
 
 
