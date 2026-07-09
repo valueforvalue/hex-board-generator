@@ -2368,8 +2368,159 @@ def _generate_multi(args, show_coords):
     c.save()
 
 
+def validate_and_normalize(args):
+    """Normalize and validate parsed argparse args; return dispatch-ready values.
+
+    Resolves `--game rex` / `--game yavalath` aliases, derives the default
+    size, picks the game-extent helper + label string, applies paper
+    auto-selection when `--stone-size` is set, checks stone fit, emits
+    warnings for flags that are silently ignored on certain games, and
+    returns a tuple of values the dispatch block needs.
+
+    Returns:
+        (args, game_extent_fn, game_label, margin_pt, stone_mode,
+         show_coords, warnings, error)
+
+    `args` is mutated in place and also returned for convenience.
+    `warnings` is a list of human-readable strings; `error` is None on
+    success or a string the caller should print and exit(2) on.
+
+    Per the locked decision in issue #3: this function does NOT call
+    `sys.exit` itself. The caller handles exit so the function stays
+    unit-testable.
+    """
+    warnings = []
+    error = None
+
+    # --game rex / --game yavalath are convenience aliases for
+    # --game hex --variant rex / --variant yavalath.
+    if args.game in ("rex", "yavalath"):
+        if args.variant is not None and args.variant != args.game:
+            error = (f"--variant {args.variant!r} conflicts with "
+                     f"--game {args.game!r}. Pick one.")
+            return args, None, None, None, False, False, warnings, error
+        args.variant = args.game
+        args.game = "hex"
+
+    # Derive the default size from the (now-resolved) game/variant.
+    if args.size is None:
+        if args.variant is not None:
+            game_key = args.variant
+        elif args.game in ("havannah", "trike"):
+            game_key = args.game
+        else:
+            game_key = "hex"
+        args.size = DEFAULT_SIZES.get(game_key, 11)
+        warnings.append(
+            f"Using default size {args.size} for {game_key} "
+            f"(most-played standard). Pass an integer to override."
+        )
+
+    # --variant only makes sense with --game hex.
+    if args.variant is not None and args.game != "hex":
+        error = (f"--variant {args.variant!r} requires --game hex "
+                 f"(got --game {args.game!r}).")
+        return args, None, None, None, False, False, warnings, error
+
+    # Pick the geometry helper + display label.
+    if args.game == "havannah":
+        game_extent_fn = havannah_extent_r_units
+        game_label = f"HAVANNAH BASE-{args.size}"
+    elif args.game == "trike":
+        game_extent_fn = trike_extent_r_units
+        game_label = f"TRIKE SIDE-{args.size}"
+    else:
+        game_extent_fn = grid_extent_r_units
+        if args.variant == "yavalath":
+            game_label = f"YAVALATH HEXHEX-{args.size}"
+        elif args.variant == "rex":
+            game_label = f"REX HEXHEX-{args.size}"
+        else:
+            game_label = f"HEX {args.size}x{args.size}"
+
+    if args.size < 2:
+        error = "Board size must be at least 2."
+        return args, game_extent_fn, game_label, None, False, False, warnings, error
+
+    # Flags that are silently ignored on certain games — warn loudly.
+    if args.game in ("havannah", "trike") and args.label_set != "wb":
+        flag_game = "Havannah" if args.game == "havannah" else "Trike"
+        warnings.append(
+            f"--label-set is ignored for {flag_game} (no side bands)."
+        )
+    if args.variant == "yavalath":
+        if args.label_set != "wb":
+            warnings.append(
+                "--label-set is ignored for Yavalath (no side bands)."
+            )
+        if args.corner_dots:
+            warnings.append(
+                "--corner-dots is ignored for Yavalath (no marked corners)."
+            )
+    if args.game == "trike" and args.corner_dots:
+        warnings.append(
+            "--corner-dots is ignored for Trike (no marked corners)."
+        )
+
+    margin_pt = args.margin if args.margin is not None else None
+
+    # --stone-mode auto-enables when a stone size was specified.
+    stone_mode = args.stone_mode or args.stone_size is not None
+
+    # Paper auto-selection when --stone-size is given and --paper is omitted.
+    if args.paper is None:
+        if args.stone_size is None:
+            args.paper = "letter"
+        else:
+            margin_for_calc = (margin_pt if margin_pt is not None
+                              else min(DEFAULT_MARGINS_PT.values()))
+            picked, orient, ratio = auto_pick_paper(
+                args.size, args.stone_size, margin_for_calc, mode=args.mode,
+                extent_fn=game_extent_fn,
+            )
+            if picked is None:
+                error = (f"no paper size is large enough for {game_label} "
+                         f"board with {args.stone_size} mm stones in "
+                         f"{args.mode} mode. Try --makeitwork or --unsafe, "
+                         f"or a smaller board size.")
+                return args, game_extent_fn, game_label, margin_pt, stone_mode, False, warnings, error
+            args.paper = picked
+            warnings.append(
+                f"Auto-selected paper: {picked} ({orient}) for {game_label} "
+                f"board with {args.stone_size} mm stones "
+                f"[mode={args.mode}, ratio={ratio:.0%}]."
+            )
+
+    if args.paper not in PAPER_SIZES:
+        error = (f"unknown paper '{args.paper}'. "
+                 f"Choices: {', '.join(PAPER_SIZES)}")
+        return args, game_extent_fn, game_label, margin_pt, stone_mode, False, warnings, error
+
+    # Stone-fit check (safe mode only — makeitwork/unsafe allow over-70%).
+    if args.stone_size is not None and args.mode == "safe":
+        pw, ph = pick_page_size(args.paper, args.size)
+        margin_for_check = (margin_pt if margin_pt is not None
+                            else DEFAULT_MARGINS_PT[args.paper])
+        r_check, _, _ = compute_r(pw, ph, margin_for_check, args.size,
+                                  extent_fn=game_extent_fn)
+        flat_mm = SQRT3 * r_check / PT_PER_INCH * MM_PER_INCH
+        if args.stone_size / flat_mm > FIT_RATIOS["safe"]:
+            error = (f"stone {args.stone_size} mm does not fit comfortably on "
+                     f"{args.paper} (hex flat-to-flat {flat_mm:.1f} mm, "
+                     f"ratio {args.stone_size/flat_mm:.0%} > 70%). "
+                     f"Use --makeitwork or omit --paper to auto-pick a "
+                     f"bigger paper.")
+            return args, game_extent_fn, game_label, margin_pt, stone_mode, False, warnings, error
+
+    show_coords = args.pen_paper or args.coords
+    return args, game_extent_fn, game_label, margin_pt, stone_mode, show_coords, warnings, error
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate a printable Hex/Havannah board PDF.")
+    parser = argparse.ArgumentParser(
+        description="Generate a printable Hex/Havannah board PDF.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument("size", type=int, nargs="?", default=None,
                         help="Board size (e.g., 11 for 11x11 Hex, or 10 for base-10 Havannah). "
                              "Defaults to the most-played standard size for the selected "
@@ -2397,15 +2548,15 @@ if __name__ == "__main__":
                              "Triggers auto paper selection and prints fit diagnostics.")
     parser.add_argument("--margin", type=float, default=None,
                         help="Override page margin in points (1 inch = 72 pt)")
-    parser.add_argument("--pen-paper", action="store_true",
+    parser.add_argument("--pen-paper", action=argparse.BooleanOptionalAction, default=False,
                         help="Paper-and-pencil mode: thicker hex strokes, "
                              "coordinate labels (a..k, 1..N) along edges, "
                              "and a notation hint in the footer. Default for pen/marker play.")
-    parser.add_argument("--coords", action="store_true",
+    parser.add_argument("--coords", action=argparse.BooleanOptionalAction, default=False,
                         help="Show coordinate labels (a..k, 1..N) along edges. "
                              "Automatically enabled by --pen-paper.")
-    parser.add_argument("--no-coords", action="store_true",
-                        help="Suppress coordinate labels (default behavior)")
+    parser.add_argument("--cell-coords", action=argparse.BooleanOptionalAction, default=False,
+                        help="Print coordinate label inside each hex cell (e.g. f7)")
     parser.add_argument("--theme", type=str, default="classic",
                         choices=list(THEMES.keys()),
                         help="Visual theme: classic (default), light, dark, wood")
@@ -2415,9 +2566,7 @@ if __name__ == "__main__":
     parser.add_argument("--corner-dots", action="store_true",
                         help="Mark the four corner hexes with filled dots "
                              "(per Hex board convention; corners belong to both adjacent sides)")
-    parser.add_argument("--cell-coords", action="store_true",
-                        help="Print coordinate label inside each hex cell (e.g. f7)")
-    parser.add_argument("--stone-mode", action="store_true",
+    parser.add_argument("--stone-mode", action=argparse.BooleanOptionalAction, default=False,
                         help="Tweak instructions for stone play (place stones in hex centers). "
                              "Auto-enabled when --stone-size is given.")
     parser.add_argument("--n-up", type=int, default=1, metavar="N",
@@ -2443,115 +2592,12 @@ if __name__ == "__main__":
                             help="No margin: stones flush with hex walls. For testing only.")
     args = parser.parse_args()
 
-    # --game rex / --game yavalath are convenience aliases for
-    # --game hex --variant rex / --variant yavalath. Promote them now and
-    # collapse the rendering path through the hex family.
-    if args.game in ("rex", "yavalath"):
-        if args.variant is not None and args.variant != args.game:
-            print(f"Error: --variant {args.variant!r} conflicts with "
-                  f"--game {args.game!r}. Pick one.", file=sys.stderr)
-            sys.exit(2)
-        args.variant = args.game
-        args.game = "hex"
-
-    # Apply the most-played standard size when the user did not pass one.
-    if args.size is None:
-        game_key = "hex" if args.game == "hex" and args.variant is None else args.game
-        if args.variant is not None:
-            game_key = args.variant  # 'rex' or 'yavalath'
-        elif args.game in ("havannah", "trike"):
-            game_key = args.game
-        else:
-            game_key = "hex"
-        args.size = DEFAULT_SIZES.get(game_key, 11)
-        print(f"Using default size {args.size} for {game_key} "
-              f"(most-played standard). Pass an integer to override.")
-
-    if args.variant is not None and args.game != "hex":
-        print(f"Error: --variant {args.variant!r} requires --game hex "
-              f"(got --game {args.game!r}).", file=sys.stderr)
+    args, game_extent_fn, game_label, margin_pt, stone_mode, show_coords, warnings, error = validate_and_normalize(args)
+    for w in warnings:
+        print(f"Warning: {w}", file=sys.stderr)
+    if error is not None:
+        print(f"Error: {error}", file=sys.stderr)
         sys.exit(2)
-
-    # Per-game configuration: extent function used for sizing.
-    if args.game == "havannah":
-        game_extent_fn = havannah_extent_r_units
-        game_label = f"HAVANNAH BASE-{args.size}"
-    elif args.game == "trike":
-        game_extent_fn = trike_extent_r_units
-        game_label = f"TRIKE SIDE-{args.size}"
-    else:
-        game_extent_fn = grid_extent_r_units
-        if args.variant == "yavalath":
-            game_label = f"YAVALATH HEXHEX-{args.size}"
-        elif args.variant == "rex":
-            game_label = f"REX HEXHEX-{args.size}"
-        else:
-            game_label = f"HEX {args.size}x{args.size}"
-
-    if args.size < 2:
-        print("Error: Board size must be at least 2.", file=sys.stderr)
-        sys.exit(1)
-
-    # Warn / reject mixed flags.
-    if args.game in ("havannah", "trike") and args.label_set != "wb":
-        flag_game = "Havannah" if args.game == "havannah" else "Trike"
-        print(f"Warning: --label-set is ignored for {flag_game} (no side bands).", file=sys.stderr)
-    if args.variant == "yavalath":
-        if args.label_set != "wb":
-            print("Warning: --label-set is ignored for Yavalath (no side bands).", file=sys.stderr)
-        if args.corner_dots:
-            print("Warning: --corner-dots is ignored for Yavalath (no marked corners).", file=sys.stderr)
-    if args.game == "trike" and args.corner_dots:
-        print("Warning: --corner-dots is ignored for Trike (no marked corners).", file=sys.stderr)
-
-    margin_pt = args.margin if args.margin is not None else None
-
-    # --stone-mode auto-enables when a stone size was specified.
-    stone_mode = args.stone_mode or args.stone_size is not None
-
-    # If --stone-size given and no explicit --paper, auto-pick.
-    if args.paper is None:
-        if args.stone_size is None:
-            args.paper = "letter"
-        else:
-            margin_for_calc = margin_pt if margin_pt is not None else min(DEFAULT_MARGINS_PT.values())
-            picked, orient, ratio = auto_pick_paper(
-                args.size, args.stone_size, margin_for_calc, mode=args.mode,
-                extent_fn=game_extent_fn,
-            )
-            if picked is None:
-                print(f"Error: no paper size is large enough for {game_label} "
-                      f"board with {args.stone_size} mm stones in {args.mode} mode. "
-                      f"Try --makeitwork or --unsafe, or a smaller board size.",
-                      file=sys.stderr)
-                sys.exit(2)
-            args.paper = picked
-            print(f"Auto-selected paper: {picked} ({orient}) for "
-                  f"{game_label} board with {args.stone_size} mm stones "
-                  f"[mode={args.mode}, ratio={ratio:.0%}].")
-
-    if args.paper not in PAPER_SIZES:
-        print(f"Error: unknown paper '{args.paper}'. Choices: {', '.join(PAPER_SIZES)}", file=sys.stderr)
-        sys.exit(1)
-
-    # Pre-flight check: does the chosen paper satisfy the fit ratio for the stone?
-    if args.stone_size is not None and args.mode == "safe":
-        pw, ph = pick_page_size(args.paper, args.size)
-        margin_for_check = margin_pt if margin_pt is not None else DEFAULT_MARGINS_PT[args.paper]
-        r_check, _, _ = compute_r(pw, ph, margin_for_check, args.size,
-                              extent_fn=game_extent_fn)
-        flat_mm = SQRT3 * r_check / PT_PER_INCH * MM_PER_INCH
-        if args.stone_size / flat_mm > FIT_RATIOS["safe"]:
-            print(f"Error: stone {args.stone_size} mm does not fit comfortably on {args.paper} "
-                  f"(hex flat-to-flat {flat_mm:.1f} mm, ratio {args.stone_size/flat_mm:.0%} > 70%). "
-                  f"Use --makeitwork or omit --paper to auto-pick a bigger paper.",
-                  file=sys.stderr)
-            sys.exit(2)
-
-    # Coordinates: on by default for pen-paper, off otherwise unless --coords.
-    show_coords = args.pen_paper or args.coords
-    if args.no_coords:
-        show_coords = False
 
     # SVG output: single-board only (no multi-board SVG, no rules).
     if args.format == "svg":

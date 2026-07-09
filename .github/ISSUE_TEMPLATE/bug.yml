@@ -1,0 +1,86 @@
+name: Bug Report
+description: File a bug. Symptom + Repro + Root cause + Files + Regression net are all required.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptom
+      description: What the user sees. Verbatim error text if any. One paragraph, no solutions, no speculation about cause.
+      placeholder: |
+        <!-- What does the user see? Quote error messages verbatim. Don't diagnose here. -->
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro
+      description: Numbered steps a maintainer can follow to reproduce. Include URL, button name, expected vs actual.
+      placeholder: |
+        1. Open <URL>
+        2. Click <button>
+        3. Observe <what happens>
+    validations:
+      required: true
+
+  - type: textarea
+    id: root-cause
+    attributes:
+      label: Root cause
+      description: One paragraph, max 5 sentences. File:line of the buggy code. Why it produces the symptom. Link the spec / contract the code violated.
+      placeholder: |
+        <!-- Cite a file:line. If you can't, label the issue needs-triage and don't proceed. -->
+    validations:
+      required: true
+
+  - type: textarea
+    id: blast-radius
+    attributes:
+      label: Call sites / blast radius
+      description: List every place the same code path runs.
+      placeholder: |
+        <!-- For document.addEventListener("click", ...) the blast radius is every page that contains the matching selector. -->
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-fix
+    attributes:
+      label: Proposed fix
+      description: One paragraph: the smallest change that resolves the root cause.
+      placeholder: |
+        <!-- Don't paste code here. Reference files. If multiple options exist, list them and recommend one. -->
+    validations:
+      required: true
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Files
+      description: Bulleted list of every file that will be touched.
+      placeholder: |
+        - path/to/handler.go
+        - path/to/view.templ
+    validations:
+      required: true
+
+  - type: textarea
+    id: regression-net
+    attributes:
+      label: Regression net
+      description: Unit test names + smoke probe filenames. The test that would catch this bug if it regressed.
+      placeholder: |
+        - internal/appshell/handler_test.go::TestXxx
+        - audit/smoke_feature.mjs step N
+    validations:
+      required: true
+
+  - type: textarea
+    id: related
+    attributes:
+      label: Related
+      description: Issue numbers, ADR numbers, or docs/COMMON_BUGS.md section references.
+    validations:
+      required: false

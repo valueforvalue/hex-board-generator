@@ -1,0 +1,134 @@
+name: Feature Request
+description: File a feature. User story + Locked decisions + Apply sites + Acceptance + Slice plan are all required.
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence — what the feature does and who it serves.
+      placeholder: |
+        <!-- One sentence. -->
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-story
+    attributes:
+      label: User story
+      description: As a <role>, I want <capability>, so that <outcome>.
+      placeholder: |
+        As a <role>, I want <capability>, so that <outcome>.
+    validations:
+      required: true
+
+  - type: textarea
+    id: locked-decisions
+    attributes:
+      label: Locked decisions
+      description: Numbered list of decisions settled during recon. Each cites the source.
+      placeholder: |
+        1. <decision> — Decided in <PR/issue/chat on YYYY-MM-DD>.
+        2. <decision> — Decided in <...>.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-ux
+    attributes:
+      label: Proposed UX
+      description: Per apply-site, what the user sees. References the screen by name and surface by ID.
+      placeholder: |
+        <!-- Per apply-site: what does the user see, and where? -->
+    validations:
+      required: true
+
+  - type: textarea
+    id: apply-sites
+    attributes:
+      label: Apply sites (v1 checklist)
+      description: Every v1 surface as a checkbox. The feature is not "shipped" until every box is checked.
+      placeholder: |
+        - [ ] <Surface 1>
+        - [ ] <Surface 2>
+        - [ ] <Surface 3>
+    validations:
+      required: true
+
+  - type: textarea
+    id: glossary-changes
+    attributes:
+      label: Glossary changes
+      description: Quote the new entry exactly as it should appear in CONTEXT.md. If the feature uses existing terms only, write "None."
+      placeholder: |
+        <!-- Quote the new entry exactly. -->
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Observable, testable in 5 min by a human with the build.
+      placeholder: |
+        - [ ] <criterion 1>
+        - [ ] <criterion 2>
+    validations:
+      required: true
+
+  - type: textarea
+    id: slice-plan
+    attributes:
+      label: Slice plan
+      description: Per the 3-tier commit rule. Each slice names files, success criteria, and regression net.
+      placeholder: |
+        ### Slice 1 (tracer bullet — fully detailed)
+        - Files: <paths>
+        - Success criteria: <observable>
+        - Regression net: <test / probe>
+
+        ### Slice 2 (stub)
+        - <one-line shape>
+
+        ### Slice 3 (stub)
+        - <one-line shape>
+    validations:
+      required: true
+
+  - type: textarea
+    id: test-plan
+    attributes:
+      label: Test plan
+      description: Per-layer test coverage.
+      placeholder: |
+        - Unit: <file: TestXxx>
+        - Handler: <file: TestXxx>
+        - Migration: <file: TestXxx>
+        - Smoke probe: <audit/smoke_X.mjs>
+    validations:
+      required: true
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Files
+      description: Bulleted list of every file that will be touched.
+    validations:
+      required: false
+
+  - type: textarea
+    id: regression-net
+    attributes:
+      label: Regression net
+      description: Unit test names + smoke probe filenames.
+    validations:
+      required: false
+
+  - type: textarea
+    id: related
+    attributes:
+      label: Related
+      description: Issue numbers, ADR numbers, docs references.
+    validations:
+      required: false

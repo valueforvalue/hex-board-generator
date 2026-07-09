@@ -421,7 +421,7 @@ score wins. The pie rule is used to balance the first-move advantage. See
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.9+
 - `reportlab` (rendering)
 - `pymupdf` *(optional, used by CI to validate PDFs — not needed for local use)*
 
