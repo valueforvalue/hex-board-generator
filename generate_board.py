@@ -986,13 +986,18 @@ def _draw_rex_win_diagram(c, region, theme="classic"):
 
 
 def _draw_yavalath_win_diagram(c, region, theme="classic"):
-    """Yavalath: White wins with 4-in-a-row on hexhex-5. Highlight the 4-chain."""
+    """Yavalath: White wins with 4-in-a-row on hexhex-5. Highlight the 4-chain.
+
+    Black stones are placed so that no Black line reaches exactly 3 —
+    a 3-in-a-row would lose immediately, making this position impossible.
+    """
     stones = {
         (0, 2): "W", (1, 2): "W", (2, 2): "W", (3, 2): "W",
-        (0, 1): "B", (1, 1): "B", (2, 1): "B",
-        (1, 3): "B", (2, 3): "B", (3, 3): "B",
-        (2, 0): "B", (3, 0): "B", (4, 0): "B",
-        (0, 3): "B", (0, 4): "B",
+        (0, 0): "B", (0, 4): "B",
+        (1, 1): "B", (1, 3): "B",
+        (2, 0): "B",
+        (3, 1): "B", (3, 3): "B",
+        (4, 0): "B", (4, 4): "B",
     }
     winning_path = [(0, 2), (1, 2), (2, 2), (3, 2)]
     return _draw_hex_diagram(c, region, board_size=5, stones=stones,
@@ -1104,21 +1109,22 @@ def _draw_havannah_diagram(c, region, base, stones_axial, winning_path_axial,
 
 
 def _draw_havannah_ring_diagram(c, region, theme="classic"):
-    """Havannah ring win: a 6-cell closed loop around the center on base-4."""
-    # base-4 cells are bounded by max(|q|,|r|,|s|) <= 3; the ring sits at
-    # axial distance 2 from the origin.
+    """Havannah ring win: a 6-cell closed loop around the center on base-4.
+
+    Forms a perfect hexagon at axial distance 1 from the origin, surrounding
+    the center cell (0,0). Every consecutive pair is adjacent — a valid ring.
+    """
     stones = {
-        # Outer ring of White stones (radius 2 from origin).
-        (2, 0): "W", (2, -1): "W", (1, -2): "W",
-        (-1, -2): "W", (-2, -1): "W", (-2, 0): "W",
-        (-2, 1): "W", (-1, 2): "W", (0, 2): "W",
-        (1, 1): "W", (1, 0): "W", (0, -1): "W",
-        # Some Black filler so the position looks like a real game.
-        (0, 0): "B", (0, 1): "B", (-1, 0): "B", (-1, 1): "B",
-        (1, -1): "B",
+        # Hexagon ring of White stones at radius 1 from origin.
+        (1, 0): "W", (1, -1): "W", (0, -1): "W",
+        (-1, 0): "W", (-1, 1): "W", (0, 1): "W",
+        # Black filler inside and outside the ring.
+        (0, 0): "B",
+        (2, 0): "B", (2, -1): "B", (1, -2): "B",
+        (-1, -1): "B", (-2, 0): "B", (-2, 1): "B",
+        (-1, 2): "B", (0, 2): "B", (1, 1): "B",
     }
-    ring = [(2, 0), (2, -1), (1, -2), (-1, -2), (-2, -1), (-2, 0),
-            (-2, 1), (-1, 2), (0, 2), (1, 1), (1, 0), (0, -1)]
+    ring = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
     return _draw_havannah_diagram(c, region, base=4, stones_axial=stones,
                                   winning_path_axial=ring, highlight_ring=True,
                                   theme=theme)
@@ -1141,22 +1147,30 @@ def _draw_havannah_bridge_diagram(c, region, theme="classic"):
 
 
 def _draw_havannah_fork_diagram(c, region, theme="classic"):
-    """Havannah fork win: White connects three edges on base-5."""
-    # Connect corner (0, -4) [bottom edge] -> center -> (4, 0) [right edge] ->
-    # (-4, 0) [left edge].
+    """Havannah fork win: White connects three edges on base-5.
+
+    Forms a Y-shape: bottom stem (0,-4) up to center (0,0), then branches
+    to right edge (4,0) and left edge (-4,0). All stones are connected
+    through the center — a single group touching 3 edges.
+    """
     stones = {
+        # Bottom stem.
         (0, -4): "W", (0, -3): "W", (0, -2): "W", (0, -1): "W",
-        (1, -1): "W", (2, -1): "W", (3, -1): "W", (4, -1): "W",
-        (4, 0): "W",
-        (-1, 1): "W", (-2, 1): "W", (-3, 1): "W", (-4, 1): "W", (-4, 0): "W",
+        # Center junction.
+        (0, 0): "W",
+        # Right branch.
+        (1, 0): "W", (2, 0): "W", (3, 0): "W", (4, 0): "W",
+        # Left branch.
+        (-1, 0): "W", (-2, 0): "W", (-3, 0): "W", (-4, 0): "W",
         # Black filler.
-        (1, 0): "B", (2, 0): "B", (3, 0): "B",
-        (-1, 0): "B", (-2, 0): "B", (-3, 0): "B",
-        (1, -2): "B", (2, -2): "B",
-        (-1, 2): "B", (-2, 2): "B",
+        (1, -1): "B", (2, -1): "B", (3, -1): "B",
+        (-1, -1): "B", (-2, -1): "B", (-3, -1): "B",
+        (1, 1): "B", (2, 1): "B", (3, 1): "B",
+        (-1, 1): "B", (-2, 1): "B", (-3, 1): "B",
     }
-    fork = [(0, -4), (0, -3), (0, -2), (0, -1), (1, -1), (2, -1), (3, -1),
-            (4, -1), (4, 0), (-4, 0), (-4, 1), (-3, 1), (-2, 1), (-1, 1)]
+    fork = [(0, -4), (0, -3), (0, -2), (0, -1), (0, 0),
+            (1, 0), (2, 0), (3, 0), (4, 0),
+            (-1, 0), (-2, 0), (-3, 0), (-4, 0)]
     return _draw_havannah_diagram(c, region, base=5, stones_axial=stones,
                                   winning_path_axial=fork, theme=theme)
 
