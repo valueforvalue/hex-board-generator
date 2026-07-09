@@ -33,6 +33,7 @@ def _parse(argv):
     parser.add_argument("--pad", type=int, default=None)
     parser.add_argument("--sizes", type=str, default=None)
     parser.add_argument("--rules", action="store_true", default=False)
+    parser.add_argument("--tile", type=str, default=None)
     parser.add_argument("--format", type=str, default="pdf")
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--safemode", dest="mode", action="store_const",
@@ -198,6 +199,55 @@ class ShowCoordsTests(unittest.TestCase):
         _, _, _, _, _, show_coords, _, error = gb.validate_and_normalize(args)
         self.assertIsNone(error)
         self.assertFalse(show_coords)
+
+
+class TileTests(unittest.TestCase):
+    def test_no_tile_means_none(self):
+        args = _parse([])
+        gb.validate_and_normalize(args)
+        self.assertIsNone(args.tile_rows)
+        self.assertIsNone(args.tile_cols)
+
+    def test_tile_2x2(self):
+        args = _parse(["--tile", "2x2"])
+        gb.validate_and_normalize(args)
+        self.assertEqual(args.tile_rows, 2)
+        self.assertEqual(args.tile_cols, 2)
+
+    def test_tile_3x1(self):
+        args = _parse(["--tile", "3x1"])
+        gb.validate_and_normalize(args)
+        self.assertEqual(args.tile_rows, 3)
+        self.assertEqual(args.tile_cols, 1)
+
+    def test_tile_case_insensitive(self):
+        args = _parse(["--tile", "2X2"])
+        gb.validate_and_normalize(args)
+        self.assertEqual(args.tile_rows, 2)
+        self.assertEqual(args.tile_cols, 2)
+
+    def test_tile_invalid_format(self):
+        args = _parse(["--tile", "abc"])
+        _, _, _, _, _, _, _, error = gb.validate_and_normalize(args)
+        self.assertIsNotNone(error)
+        self.assertIn("RxC", error)
+
+    def test_tile_wrong_parts(self):
+        args = _parse(["--tile", "2x2x2"])
+        _, _, _, _, _, _, _, error = gb.validate_and_normalize(args)
+        self.assertIsNotNone(error)
+        self.assertIn("RxC", error)
+
+    def test_tile_zero_errors(self):
+        args = _parse(["--tile", "0x0"])
+        _, _, _, _, _, _, _, error = gb.validate_and_normalize(args)
+        self.assertIsNotNone(error)
+        self.assertIn(">= 1", error)
+
+    def test_tile_non_integer_errors(self):
+        args = _parse(["--tile", "2.5x2"])
+        _, _, _, _, _, _, _, error = gb.validate_and_normalize(args)
+        self.assertIsNotNone(error)
 
 
 if __name__ == "__main__":

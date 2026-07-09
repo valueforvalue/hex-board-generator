@@ -9,6 +9,14 @@ Commit subjects follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added
+- `--tile RxC` flag splits a single board across R rows × C cols of pages,
+  so users can print, cut along crop marks, and tape pages together to make
+  a board larger than any single sheet. Works with all games except Trike
+  (anchor-based layout, not yet supported). `--tile + --rules` appends the
+  rules page after the last tile; `--tile + --format svg` errors (SVG is
+  single-page only).
+
 ### Maintenance
 - Tailored framework docs to the hex-board-generator stack:
   - `AGENTS.md` — replaced boilerplate with project-specific file map,

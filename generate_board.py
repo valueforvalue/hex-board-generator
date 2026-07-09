@@ -366,7 +366,8 @@ def hex_fits_stone(r_pt, stone_diameter_mm):
 
 def draw_board_into_region(c, board_size, region, margin_pt,
                            pen_paper, coords, theme, label_set, corner_dots,
-                           draw_title=True, cell_coords=False, variant=None):
+                           draw_title=True, cell_coords=False, variant=None,
+                           r_override=None, center_override=None):
     """Draw one hex board into a rectangular region of an existing canvas.
 
     `region` = (x, y, w, h): bottom-left corner plus size of the region.
@@ -375,6 +376,13 @@ def draw_board_into_region(c, board_size, region, margin_pt,
 
     `variant`: None (standard Hex), "rex" (misere Hex), or "yavalath"
     (no perimeter bands; 4-in-a-row wins, 3-in-a-row loses).
+
+    `r_override`: if not None, use this hex radius instead of computing from
+    region size. Used by --tile to keep hex size consistent across tiles.
+
+    `center_override`: if not None, use this (cx, cy) as the board center
+    instead of the region center. Used by --tile so each tile shows the
+    correct sub-region of the full board.
     """
     assert variant in HEX_VARIANTS, f"unknown hex variant {variant!r}"
     rx, ry, rw, rh = region
@@ -384,12 +392,18 @@ def draw_board_into_region(c, board_size, region, margin_pt,
         c.setFillColor(colors.HexColor(theme_def["page_bg"]))
         c.rect(rx, ry, rw, rh, fill=True, stroke=False)
 
-    # Largest r fitting this region.
+    # Largest r fitting this region (unless overridden for tiling).
     gw_units, gh_units = grid_extent_r_units(board_size)
-    r = min(rw / gw_units, rh / gh_units) * 0.92
+    if r_override is not None:
+        r = r_override
+    else:
+        r = min(rw / gw_units, rh / gh_units) * 0.92
 
-    center_x = rx + rw / 2
-    center_y = ry + rh / 2
+    if center_override is not None:
+        center_x, center_y = center_override
+    else:
+        center_x = rx + rw / 2
+        center_y = ry + rh / 2
 
     min_x = -r * SQRT3 / 2
     max_x = r * SQRT3 * (1.5 * (board_size - 1) + 0.5)
@@ -1582,7 +1596,16 @@ def _havannah_cell_color(theme_def, q, r):
 def draw_havannah_board_into_region(c, base, region, margin_pt,
                                     pen_paper, coords, theme, corner_dots,
                                     draw_title=True, cell_coords=False,
-                                    game_label="HAVANNAH"):
+                                    game_label="HAVANNAH",
+                                    r_override=None, center_override=None):
+    """Draw a base-N Havannah board into a rectangular region.
+
+    `region` = (x, y, w, h): bottom-left corner plus size of the region.
+    The board fills the region (with its own internal margin_pt).
+    Returns the r used (in points).
+
+    `r_override` / `center_override`: see draw_board_into_region.
+    """
     """Draw a base-N Havannah board into a rectangular region.
 
     `region` = (x, y, w, h): bottom-left corner plus size of the region.
@@ -1596,10 +1619,16 @@ def draw_havannah_board_into_region(c, base, region, margin_pt,
         c.rect(rx, ry, rw, rh, fill=True, stroke=False)
 
     gw_units, gh_units = havannah_extent_r_units(base)
-    r = min(rw / gw_units, rh / gh_units) * 0.92
+    if r_override is not None:
+        r = r_override
+    else:
+        r = min(rw / gw_units, rh / gh_units) * 0.92
 
-    center_x = rx + rw / 2
-    center_y = ry + rh / 2
+    if center_override is not None:
+        center_x, center_y = center_override
+    else:
+        center_x = rx + rw / 2
+        center_y = ry + rh / 2
 
     # Havannah hex grid is symmetric about its center; extent is ±(N - 0.5)·r.
     extent = (base - 0.5) * r
@@ -1922,12 +1951,15 @@ def _trike_cell_color(theme_def, q, r):
 
 def draw_trike_board_into_region(c, side, region, margin_pt,
                                  pen_paper, coords, theme,
-                                 draw_title=True, cell_coords=False):
+                                 draw_title=True, cell_coords=False,
+                                 r_override=None, center_override=None):
     """Draw a side-N Trike board (point-up triangle) into a rectangular region.
 
     `region` = (x, y, w, h): bottom-left corner plus size of the region.
     The board fills the region (with its own internal margin_pt).
     Returns the r used (in points).
+
+    `r_override` / `center_override`: see draw_board_into_region.
     """
     rx, ry, rw, rh = region
     theme_def = THEMES[theme]
@@ -1936,14 +1968,17 @@ def draw_trike_board_into_region(c, side, region, margin_pt,
         c.rect(rx, ry, rw, rh, fill=True, stroke=False)
 
     gw_units, gh_units = trike_extent_r_units(side)
-    # Reserve ~2r of vertical slack: hex vertices extend r above the top cell
-    # center and r below the bottom cell center, so the bounding box of all
-    # drawn hexes is larger than the cell-center bounding box by 2r in y.
-    # Use a binary search-friendly closed form: r such that
-    #   r*gh_units + 2r = rh   →   r = rh / (gh_units + 2)
-    r_y = rh / (gh_units + 2)
-    r_x = rw / gw_units
-    r = min(r_x, r_y) * 0.96
+    if r_override is not None:
+        r = r_override
+    else:
+        # Reserve ~2r of vertical slack: hex vertices extend r above the top cell
+        # center and r below the bottom cell center, so the bounding box of all
+        # drawn hexes is larger than the cell-center bounding box by 2r in y.
+        # Use a binary search-friendly closed form: r such that
+        #   r*gh_units + 2r = rh   →   r = rh / (gh_units + 2)
+        r_y = rh / (gh_units + 2)
+        r_x = rw / gw_units
+        r = min(r_x, r_y) * 0.96
 
     # Triangle vertices in local coords:
     #   bottom-left  = (0, 0)
@@ -2543,7 +2578,173 @@ def validate_and_normalize(args):
             return args, game_extent_fn, game_label, margin_pt, stone_mode, False, warnings, error
 
     show_coords = args.pen_paper or args.coords
+
+    # Parse --tile RxC. Sets args.tile_rows, args.tile_cols (both None if no --tile).
+    args.tile_rows = None
+    args.tile_cols = None
+    if args.tile is not None:
+        try:
+            parts = args.tile.lower().split("x")
+            if len(parts) != 2:
+                error = (f"--tile expects RxC format (e.g., '2x2'), got {args.tile!r}.")
+                return args, game_extent_fn, game_label, margin_pt, stone_mode, show_coords, warnings, error
+            rows, cols = int(parts[0]), int(parts[1])
+            if rows < 1 or cols < 1:
+                error = f"--tile rows and cols must be >= 1, got {args.tile!r}."
+                return args, game_extent_fn, game_label, margin_pt, stone_mode, show_coords, warnings, error
+            args.tile_rows, args.tile_cols = rows, cols
+        except ValueError:
+            error = f"--tile expects RxC format (e.g., '2x2'), got {args.tile!r}."
+            return args, game_extent_fn, game_label, margin_pt, stone_mode, show_coords, warnings, error
+
     return args, game_extent_fn, game_label, margin_pt, stone_mode, show_coords, warnings, error
+
+
+def _draw_crop_marks(c, region, margin_pt=18, length_pt=12, line_w=0.5):
+    """Draw L-shaped crop marks at the four corners of a region.
+
+    `region` = (x, y, w, h). Crop marks sit just outside the region corners,
+    pointing inward, so the user knows where to cut.
+    """
+    rx, ry, rw, rh = region
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(line_w)
+    # Bottom-left corner: horizontal left, vertical down.
+    c.line(rx - margin_pt, ry, rx - margin_pt + length_pt, ry)
+    c.line(rx, ry - margin_pt, rx, ry - margin_pt + length_pt)
+    # Bottom-right corner: horizontal right, vertical down.
+    c.line(rx + rw + margin_pt - length_pt, ry, rx + rw + margin_pt, ry)
+    c.line(rx + rw, ry - margin_pt, rx + rw, ry - margin_pt + length_pt)
+    # Top-left corner: horizontal left, vertical up.
+    c.line(rx - margin_pt, ry + rh, rx - margin_pt + length_pt, ry + rh)
+    c.line(rx, ry + rh + margin_pt - length_pt, rx, ry + rh + margin_pt)
+    # Top-right corner: horizontal right, vertical up.
+    c.line(rx + rw + margin_pt - length_pt, ry + rh, rx + rw + margin_pt, ry + rh)
+    c.line(rx + rw, ry + rh + margin_pt - length_pt, rx + rw, ry + rh + margin_pt)
+
+
+def _generate_tiles(args, game_extent_fn, game_label, margin_pt, stone_mode,
+                    show_coords):
+    """Render a single board split across args.tile_rows x args.tile_cols pages.
+
+    Each page gets crop marks at the corners and a tile label. The board
+    hex size is computed from the full assembled board dimensions so that
+    hexes line up perfectly across tile boundaries.
+    """
+    rows = args.tile_rows
+    cols = args.tile_cols
+    assert rows and cols
+
+    pw, ph = pick_page_size(args.paper, args.size)
+    if margin_pt is None:
+        if args.mode in ("makeitwork", "unsafe"):
+            margin_pt = 4
+        else:
+            margin_pt = DEFAULT_MARGINS_PT[args.paper]
+
+    # Full assembled board size (R x C pages worth).
+    full_w = cols * (pw - 2 * margin_pt)
+    full_h = rows * (ph - 2 * margin_pt)
+
+    # Compute the hex radius `r` for the full board.
+    full_r, _, _ = compute_r(full_w, full_h, margin_pt, args.size,
+                             extent_fn=game_extent_fn)
+
+    # Board center in board coordinates (centered in the full assembled region).
+    full_cx = full_w / 2
+    full_cy = full_h / 2
+
+    theme_def = THEMES[args.theme]
+    is_havannah = args.game == "havannah" or args.variant == "yavalath"
+    is_yavalath = args.variant == "yavalath"
+    is_trike = args.game == "trike"
+    game_label_str = "YAVALATH" if is_yavalath else ("HAVANNAH" if is_havannah else "HEX")
+
+    c = canvas.Canvas(args.output, pagesize=(pw, ph))
+    if theme_def["page_bg"]:
+        c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+        c.rect(0, 0, pw, ph, fill=True, stroke=False)
+
+    title_color = "#FFFFFF" if args.theme == "dark" else "#1A1A1A"
+    subtle_color = "#888888" if args.theme != "dark" else "#BBBBBB"
+
+    page_idx = 0
+    total_pages = rows * cols
+    for tile_row in range(rows):
+        for tile_col in range(cols):
+            page_idx += 1
+            # Board offset: the full board center is at (full_cx, full_cy).
+            # The tile at (tile_col, tile_row) shows the sub-region centered
+            # at (full_cx - tile_col * tile_w, full_cy - tile_row * tile_h).
+            tile_w = pw - 2 * margin_pt
+            tile_h = ph - 2 * margin_pt
+            tile_center = (full_cx - tile_col * tile_w,
+                           full_cy - tile_row * tile_h)
+
+            # Page region for the board (with internal margin_pt).
+            page_region = (margin_pt, margin_pt, tile_w, tile_h)
+
+            # Draw the board using the full-board r and the tile's center.
+            if is_trike:
+                # Trike tiling not yet supported (anchor-based, not center-based).
+                print(f"Error: --tile is not yet supported for Trike.", file=sys.stderr)
+                sys.exit(2)
+            elif is_havannah:
+                draw_havannah_board_into_region(
+                    c, args.size, page_region, margin_pt,
+                    args.pen_paper, show_coords, args.theme, args.corner_dots,
+                    draw_title=False, cell_coords=args.cell_coords,
+                    game_label=game_label_str,
+                    r_override=full_r, center_override=tile_center,
+                )
+            else:
+                draw_board_into_region(
+                    c, args.size, page_region, margin_pt,
+                    args.pen_paper, show_coords, args.theme,
+                    args.label_set, args.corner_dots,
+                    draw_title=False, cell_coords=args.cell_coords,
+                    variant=args.variant,
+                    r_override=full_r, center_override=tile_center,
+                )
+
+            # Crop marks at the page corners.
+            _draw_crop_marks(c, (0, 0, pw, ph))
+
+            # Tile label (bottom-center, small).
+            c.setFont("Helvetica-Oblique", 8)
+            c.setFillColor(colors.HexColor(subtle_color))
+            # Tile coordinate convention: (col, row) from bottom-left, 1-indexed.
+            label = (f"Tile ({tile_col + 1},{tile_row + 1}) of "
+                     f"({cols},{rows})  \u2022  Page {page_idx}/{total_pages}")
+            c.drawCentredString(pw / 2, 8, label)
+
+            c.showPage()
+            # Re-fill page bg for next page.
+            if theme_def["page_bg"]:
+                c.setFillColor(colors.HexColor(theme_def["page_bg"]))
+                c.rect(0, 0, pw, ph, fill=True, stroke=False)
+
+    # Rules page goes on the last tile's page.
+    if args.rules:
+        if is_yavalath:
+            _draw_yavalath_rules_page(c, pw, ph, theme=args.theme,
+                                      stone_mode=stone_mode)
+        elif is_havannah:
+            draw_havannah_rules_page(c, pw, ph, theme=args.theme,
+                                     stone_mode=stone_mode)
+        elif is_trike:
+            draw_trike_rules_page(c, pw, ph, theme=args.theme,
+                                  stone_mode=stone_mode)
+        else:
+            draw_rules_page(c, pw, ph, theme=args.theme,
+                            label_set=args.label_set, stone_mode=stone_mode,
+                            variant=args.variant)
+        c.showPage()
+        print("  + rules page")
+
+    c.save()
+    print(f"Generated {game_label} board in {total_pages}-tile layout "
+          f"({cols}x{rows}) on {args.paper}.")
 
 
 if __name__ == "__main__":
@@ -2609,6 +2810,11 @@ if __name__ == "__main__":
                              "Produces one board per page, useful as a reference booklet.")
     parser.add_argument("--rules", action="store_true",
                         help="Append a Hex rules summary page at the end of the PDF")
+    parser.add_argument("--tile", type=str, default=None, metavar="RxC",
+                        help="Split the board across RxC pages (e.g., '2x2' = 4 pages "
+                             "in a 2-row, 2-column grid). Each page gets crop marks at "
+                             "the corners; assemble by cutting and taping. SVG output is "
+                             "not supported with --tile.")
     parser.add_argument("--format", type=str, default="pdf", choices=["pdf", "svg"],
                         help="Output format: pdf (default) or svg")
     mode_group = parser.add_mutually_exclusive_group()
@@ -2634,6 +2840,10 @@ if __name__ == "__main__":
         if args.sizes or args.pad or (args.n_up and args.n_up > 1) or args.rules:
             print("Error: --format svg is single-page only; not compatible with "
                   "--n-up, --pad, --sizes, or --rules.", file=sys.stderr)
+            sys.exit(2)
+        if args.tile:
+            print("Error: --format svg is single-page only; not compatible with --tile.",
+                  file=sys.stderr)
             sys.exit(2)
         if args.game == "havannah" or args.variant == "yavalath":
             write_havannah_svg(args.output, args.size, paper=args.paper, margin_pt=margin_pt,
@@ -2665,6 +2875,12 @@ if __name__ == "__main__":
     # Multi-board dispatch: --sizes, --pad, or --n-up > 1 take over.
     if args.sizes or args.pad or (args.n_up and args.n_up > 1):
         _generate_multi(args, show_coords)
+        sys.exit(0)
+
+    # Tile dispatch: split one board across RxC pages.
+    if args.tile_rows and args.tile_cols:
+        _generate_tiles(args, game_extent_fn, game_label, margin_pt,
+                        stone_mode, show_coords)
         sys.exit(0)
 
     if args.game == "havannah" or args.variant == "yavalath":
